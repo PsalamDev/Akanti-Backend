@@ -40,11 +40,14 @@ builder.Services.AddSwaggerGen(c =>
 
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
 
+// Also convert DATABASE_URL to connection string if set
 var databaseUrl = Environment.GetEnvironmentVariable("DATABASE_URL");
-if (!string.IsNullOrEmpty(databaseUrl))
+if (!string.IsNullOrEmpty(databaseUrl) && !databaseUrl.Contains("[YOUR"))
 {
     connectionString = databaseUrl;
 }
+
+Console.WriteLine($"Using connection string starting with: {connectionString?.Substring(0, Math.Min(connectionString?.Length ?? 0, 40))}...");
 
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseNpgsql(connectionString));
