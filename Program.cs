@@ -85,30 +85,32 @@ if (!string.IsNullOrEmpty(databaseUrl) && !databaseUrl.Contains("[YOUR"))
 Console.WriteLine($"Using database: {connectionString?.Substring(0, Math.Min(connectionString?.Length ?? 0, 50))}...");
 
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
-    options.UseNpgsql(connectionString));
+    options.UseNpgsql(connectionString, o => o.CommandTimeout(120)));
 
 // Ensure configuration keys match your appsettings.json structure
 var jwtIssuer = builder.Configuration["Jwt:Issuer"];
 var jwtAudience = builder.Configuration["Jwt:Audience"];
 var jwtKey = builder.Configuration["Jwt:Key"];
 
+var validateIssuer = !string.IsNullOrEmpty(jwtIssuer);
+var validateAudience = !string.IsNullOrEmpty(jwtAudience);
+
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
-        // 1. Prevents .NET from mapping "sub" to legacy SOAP XML schemas
-        options.MapInboundClaims = false; 
+        options.MapInboundClaims = false;
         options.IncludeErrorDetails = true;
 
         options.TokenValidationParameters = new TokenValidationParameters
         {
-            ValidateIssuer = true,
-            ValidateAudience = true,
+            ValidateIssuer = validateIssuer,
+            ValidateAudience = validateAudience,
             ValidateLifetime = true,
             ValidateIssuerSigningKey = true,
             ValidIssuer = jwtIssuer,
             ValidAudience = jwtAudience,
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey!)),
-            ClockSkew = TimeSpan.Zero // Checks exact expiration time immediately
+            ClockSkew = TimeSpan.Zero
         };
 
         // 2. Logs exact validation failures directly to your terminal
