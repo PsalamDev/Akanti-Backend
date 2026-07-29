@@ -68,7 +68,7 @@ if (!string.IsNullOrEmpty(databaseUrl) && !databaseUrl.Contains("[YOUR"))
             var host = portIdx >= 0 ? hostPort.Substring(0, portIdx) : hostPort;
             var port = portIdx >= 0 ? hostPort.Substring(portIdx + 1) : "5432";
 
-            connectionString = $"Host={host};Port={port};Database={db};Username={username};Password={password};SSL Mode=Require;Trust Server Certificate=true";
+            connectionString = $"Host={host};Port={port};Database={db};Username={username};Password={password};SSL Mode=Require;Trust Server Certificate=true;Maximum Pool Size=10;Connection Idle Lifetime=30;Connection Pruning Interval=10";
         }
         catch
         {
@@ -85,7 +85,11 @@ if (!string.IsNullOrEmpty(databaseUrl) && !databaseUrl.Contains("[YOUR"))
 Console.WriteLine($"Using database: {connectionString?.Substring(0, Math.Min(connectionString?.Length ?? 0, 50))}...");
 
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
-    options.UseNpgsql(connectionString, o => o.CommandTimeout(120)));
+    options.UseNpgsql(connectionString, o =>
+    {
+        o.CommandTimeout(120);
+        o.EnableRetryOnFailure(3, TimeSpan.FromSeconds(30), null);
+    }));
 
 // Ensure configuration keys match your appsettings.json structure
 var jwtIssuer = builder.Configuration["Jwt:Issuer"];
