@@ -40,14 +40,38 @@ builder.Services.AddSwaggerGen(c =>
 
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
 
-// Also convert DATABASE_URL to connection string if set
+// Try DATABASE_URL env var (used by Render / Supabase)
 var databaseUrl = Environment.GetEnvironmentVariable("DATABASE_URL");
 if (!string.IsNullOrEmpty(databaseUrl) && !databaseUrl.Contains("[YOUR"))
 {
-    connectionString = databaseUrl;
+    // Convert URI format (postgresql://user:pass@host:port/db) to key=value format
+    if (databaseUrl.StartsWith("postgresql://") || databaseUrl.StartsWith("postgres://"))
+    {
+        try
+        {
+            var uri = new Uri(databaseUrl);
+            var userInfo = uri.UserInfo?.Split(':');
+            var username = userInfo?[0] ?? "";
+            var password = userInfo?.Length > 1 ? userInfo[1] : "";
+            var host = uri.Host;
+            var port = uri.Port;
+            var db = uri.AbsolutePath.TrimStart('/');
+
+            connectionString = $"Host={host};Port={port};Database={db};Username={username};Password={password};SSL Mode=Require;Trust Server Certificate=true";
+        }
+        catch
+        {
+            Console.WriteLine("Failed to parse DATABASE_URL as URI, using raw value");
+            connectionString = databaseUrl;
+        }
+    }
+    else
+    {
+        connectionString = databaseUrl;
+    }
 }
 
-Console.WriteLine($"Using connection string starting with: {connectionString?.Substring(0, Math.Min(connectionString?.Length ?? 0, 40))}...");
+Console.WriteLine($"Using database: {connectionString?.Substring(0, Math.Min(connectionString?.Length ?? 0, 50))}...");
 
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseNpgsql(connectionString));
