@@ -7,6 +7,8 @@ using Akanti.API.Data;
 using Akanti.API.Services;
 using Akanti.API.Middleware;
 
+AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
+
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers();
