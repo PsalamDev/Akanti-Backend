@@ -169,22 +169,13 @@ using (var scope = app.Services.CreateScope())
 {
     var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
 
-    // Apply EF migrations (works with PostgreSQL)
     try
     {
-        dbContext.Database.Migrate();
+        dbContext.Database.EnsureCreated();
     }
     catch (Exception ex)
     {
-        Console.WriteLine($"EF Migrate failed, trying EnsureCreated: {ex.Message}");
-        try
-        {
-            dbContext.Database.EnsureCreated();
-        }
-        catch (Exception ex2)
-        {
-            Console.WriteLine($"EnsureCreated also failed: {ex2.Message}");
-        }
+        Console.WriteLine($"Database initialization skipped (tables likely exist): {ex.Message}");
     }
 }
 
