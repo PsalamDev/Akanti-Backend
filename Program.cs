@@ -154,7 +154,7 @@ builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IAIService, AIService>();
 builder.Services.AddHttpClient<IAIService, AIService>();
 builder.Services.AddScoped<IEmailService, EmailService>();
-// builder.Services.AddHostedService<DebtReminderService>(); // Disabled temporarily to prevent connection pool exhaustion
+builder.Services.AddHostedService<DebtReminderService>();
 
 var app = builder.Build();
 
