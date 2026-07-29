@@ -3,6 +3,6 @@ obj/
 *.user
 *.suo
 .vs/
-appsettings.json
+# appsettings.json is committed with placeholders; secrets come from env vars
 *.Development.json
 *.Production.json
