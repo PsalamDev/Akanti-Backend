@@ -49,13 +49,24 @@ if (!string.IsNullOrEmpty(databaseUrl) && !databaseUrl.Contains("[YOUR"))
     {
         try
         {
-            var uri = new Uri(databaseUrl);
-            var userInfo = uri.UserInfo?.Split(':');
-            var username = userInfo?[0] ?? "";
-            var password = userInfo?.Length > 1 ? userInfo[1] : "";
-            var host = uri.Host;
-            var port = uri.Port;
-            var db = uri.AbsolutePath.TrimStart('/');
+            // Manual parse to handle @ in password
+            var withoutScheme = databaseUrl.Substring(databaseUrl.IndexOf("://") + 3);
+            var atIndex = withoutScheme.LastIndexOf('@');
+            var userInfo = withoutScheme.Substring(0, atIndex);
+            var hostPart = withoutScheme.Substring(atIndex + 1);
+
+            var colonIdx = userInfo.IndexOf(':');
+            var username = colonIdx >= 0 ? Uri.UnescapeDataString(userInfo.Substring(0, colonIdx)) : Uri.UnescapeDataString(userInfo);
+            var password = colonIdx >= 0 ? Uri.UnescapeDataString(userInfo.Substring(colonIdx + 1)) : "";
+
+            // Split host:port/db
+            var slashIdx = hostPart.IndexOf('/');
+            var hostPort = slashIdx >= 0 ? hostPart.Substring(0, slashIdx) : hostPart;
+            var db = slashIdx >= 0 ? hostPart.Substring(slashIdx + 1) : "";
+
+            var portIdx = hostPort.LastIndexOf(':');
+            var host = portIdx >= 0 ? hostPort.Substring(0, portIdx) : hostPort;
+            var port = portIdx >= 0 ? hostPort.Substring(portIdx + 1) : "5432";
 
             connectionString = $"Host={host};Port={port};Database={db};Username={username};Password={password};SSL Mode=Require;Trust Server Certificate=true";
         }
