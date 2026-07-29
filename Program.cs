@@ -68,7 +68,7 @@ if (!string.IsNullOrEmpty(databaseUrl) && !databaseUrl.Contains("[YOUR"))
             var host = portIdx >= 0 ? hostPort.Substring(0, portIdx) : hostPort;
             var port = portIdx >= 0 ? hostPort.Substring(portIdx + 1) : "5432";
 
-            connectionString = $"Host={host};Port={port};Database={db};Username={username};Password={password};SSL Mode=Require;Trust Server Certificate=true;Maximum Pool Size=10;Connection Idle Lifetime=30;Connection Pruning Interval=10";
+            connectionString = $"Host={host};Port={port};Database={db};Username={username};Password={password};SSL Mode=Require;Trust Server Certificate=true;Maximum Pool Size=5;Pooling=true;Connection Idle Lifetime=30;Connection Pruning Interval=10";
         }
         catch
         {
@@ -152,7 +152,7 @@ builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IAIService, AIService>();
 builder.Services.AddHttpClient<IAIService, AIService>();
 builder.Services.AddScoped<IEmailService, EmailService>();
-builder.Services.AddHostedService<DebtReminderService>();
+// builder.Services.AddHostedService<DebtReminderService>(); // Disabled temporarily to prevent connection pool exhaustion
 
 var app = builder.Build();
 
