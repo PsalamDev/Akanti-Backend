@@ -28,6 +28,10 @@ public class AuthController : ControllerBase
         {
             return BadRequest(new { message = ex.Message });
         }
+        catch (Exception ex)
+        {
+            return StatusCode(500, new { message = "An unexpected error occurred during registration.", error = ex.Message });
+        }
     }
 
     [HttpPost("login")]

@@ -34,24 +34,24 @@ public class EmailService : IEmailService
             return;
         }
 
-        using var client = new SmtpClient(host, port)
-        {
-            Credentials = new NetworkCredential(username, password),
-            EnableSsl = true,
-            Timeout = 10000
-        };
-
-        var message = new MailMessage
-        {
-            From = new MailAddress(fromEmail, fromName),
-            Subject = subject,
-            Body = htmlBody,
-            IsBodyHtml = true
-        };
-        message.To.Add(to);
-
         try
         {
+            using var client = new SmtpClient(host, port)
+            {
+                Credentials = new NetworkCredential(username, password),
+                EnableSsl = true,
+                Timeout = 10000
+            };
+
+            var message = new MailMessage
+            {
+                From = new MailAddress(fromEmail, fromName),
+                Subject = subject,
+                Body = htmlBody,
+                IsBodyHtml = true
+            };
+            message.To.Add(to);
+
             await client.SendMailAsync(message);
             _logger.LogInformation("Email sent to {To}: {Subject}", to, subject);
         }
