@@ -50,13 +50,18 @@ public class AuthService : IAuthService
         {
             var code = await GenerateAndStoreVerificationCodeAsync(user.Id);
             await SendVerificationEmailAsync(user.Email, user.FullName, code);
+
+            return new RegisterResponse
+            {
+                Message = "Account created. Please check your email for a verification code.",
+                Email = request.Email,
+                VerificationCode = code
+            };
         }
 
         return new RegisterResponse
         {
-            Message = isAdmin
-                ? "Admin account created successfully."
-                : "Account created. Please check your email for a verification code.",
+            Message = "Admin account created successfully.",
             Email = request.Email
         };
     }
