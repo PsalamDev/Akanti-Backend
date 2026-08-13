@@ -14,18 +14,18 @@ public class AuthService : IAuthService
 {
     private readonly ApplicationDbContext _context;
     private readonly IConfiguration _configuration;
-    private readonly IEmailService _emailService;
+    private readonly IBackgroundEmailQueue _emailQueue;
 
-    public AuthService(ApplicationDbContext context, IConfiguration configuration, IEmailService emailService)
+    public AuthService(ApplicationDbContext context, IConfiguration configuration, IBackgroundEmailQueue emailQueue)
     {
         _context = context;
         _configuration = configuration;
-        _emailService = emailService;
+        _emailQueue = emailQueue;
     }
 
     public async Task<RegisterResponse> RegisterAsync(RegisterRequest request)
     {
-        if (await _context.Users.AnyAsync(u => u.Email == request.Email))
+        if (await _context.Users.AsNoTracking().AnyAsync(u => u.Email == request.Email))
             throw new InvalidOperationException("Email Address already exists.");
 
         var adminEmail = _configuration["AdminEmail"];
@@ -43,13 +43,25 @@ public class AuthService : IAuthService
             IsEmailVerified = isAdmin
         };
 
+        var code = isAdmin ? null : GenerateVerificationCode();
+
+        if (!isAdmin)
+        {
+            _context.EmailVerifications.Add(new EmailVerification
+            {
+                Code = code!,
+                ExpiresAt = DateTime.UtcNow.AddMinutes(15),
+                IsUsed = false,
+                User = user
+            });
+        }
+
         _context.Users.Add(user);
         await _context.SaveChangesAsync();
 
         if (!isAdmin)
         {
-            var code = await GenerateAndStoreVerificationCodeAsync(user.Id);
-            await SendVerificationEmailAsync(user.Email, user.FullName, code);
+            await _emailQueue.EnqueueAsync(user.Email, "Verify your Akanti account", BuildVerificationEmail(user.FullName, code!));
 
             return new RegisterResponse
             {
@@ -68,7 +80,7 @@ public class AuthService : IAuthService
 
     public async Task<AuthResponse> LoginAsync(LoginRequest request)
     {
-        var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == request.Email)
+        var user = await _context.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Email == request.Email)
             ?? throw new UnauthorizedAccessException("Invalid email or password.");
 
         if (!VerifyPassword(request.Password, user.PasswordHash))
@@ -105,19 +117,29 @@ public class AuthService : IAuthService
 
     public async Task ResendVerificationAsync(string email)
     {
-        var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == email)
+        var user = await _context.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Email == email)
             ?? throw new InvalidOperationException("User not found.");
 
         if (user.IsEmailVerified)
             throw new InvalidOperationException("Email is already verified.");
 
-        var code = await GenerateAndStoreVerificationCodeAsync(user.Id);
-        await SendVerificationEmailAsync(user.Email, user.FullName, code);
+        var code = GenerateVerificationCode();
+
+        _context.EmailVerifications.Add(new EmailVerification
+        {
+            UserId = user.Id,
+            Code = code,
+            ExpiresAt = DateTime.UtcNow.AddMinutes(15),
+            IsUsed = false
+        });
+        await _context.SaveChangesAsync();
+
+        await _emailQueue.EnqueueAsync(user.Email, "Verify your Akanti account", BuildVerificationEmail(user.FullName, code));
     }
 
     public async Task<UserDto> GetUserByIdAsync(int userId)
     {
-        var user = await _context.Users.FindAsync(userId)
+        var user = await _context.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == userId)
             ?? throw new KeyNotFoundException("User not found.");
 
         return new UserDto
@@ -132,29 +154,91 @@ public class AuthService : IAuthService
         };
     }
 
-    private async Task<string> GenerateAndStoreVerificationCodeAsync(int userId)
+    public async Task ForgotPasswordAsync(string email)
     {
-        var random = new Random();
-        var code = random.Next(100000, 999999).ToString();
+        var user = await _context.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Email == email);
+        if (user == null) return;
 
-        var verification = new EmailVerification
+        var cooldownMinutes = 10;
+        var recentToken = await _context.PasswordResetTokens.AsNoTracking()
+            .Where(t => t.UserId == user.Id && t.CreatedAt > DateTime.UtcNow.AddMinutes(-cooldownMinutes))
+            .OrderByDescending(t => t.CreatedAt)
+            .FirstOrDefaultAsync();
+
+        if (recentToken != null)
         {
-            UserId = userId,
+            var waitSeconds = (int)(recentToken.CreatedAt.AddMinutes(cooldownMinutes) - DateTime.UtcNow).TotalSeconds;
+            throw new InvalidOperationException($"A code was already sent. Please wait {waitSeconds / 60}m {waitSeconds % 60}s before requesting a new one.");
+        }
+
+        var code = GenerateVerificationCode();
+
+        var resetToken = new PasswordResetToken
+        {
+            UserId = user.Id,
             Code = code,
+            TokenHash = HashPassword(code),
             ExpiresAt = DateTime.UtcNow.AddMinutes(15),
-            IsUsed = false
+            IsUsed = false,
+            CreatedAt = DateTime.UtcNow
         };
 
-        _context.EmailVerifications.Add(verification);
+        _context.PasswordResetTokens.Add(resetToken);
         await _context.SaveChangesAsync();
 
-        return code;
+        await _emailQueue.EnqueueAsync(user.Email, "Akanti - Password Reset Code", BuildPasswordResetEmail(user.FullName, code));
     }
 
-    private async Task SendVerificationEmailAsync(string email, string fullName, string code)
+    public async Task VerifyResetCodeAsync(string email, string code)
     {
-        var subject = "Verify your Akanti account";
-        var htmlBody = $@"
+        var user = await _context.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Email == email)
+            ?? throw new InvalidOperationException("User not found.");
+
+        var resetToken = await _context.PasswordResetTokens.AsNoTracking()
+            .FirstOrDefaultAsync(t => t.UserId == user.Id && t.Code == code && !t.IsUsed && t.ExpiresAt > DateTime.UtcNow)
+            ?? throw new InvalidOperationException("Invalid or expired reset code.");
+    }
+
+    public async Task ResetPasswordAsync(string email, string code, string newPassword)
+    {
+        var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == email)
+            ?? throw new InvalidOperationException("User not found.");
+
+        var latestToken = await _context.PasswordResetTokens
+            .Where(t => t.UserId == user.Id && t.Code == code && t.ExpiresAt > DateTime.UtcNow)
+            .OrderByDescending(t => t.CreatedAt)
+            .FirstOrDefaultAsync()
+            ?? throw new InvalidOperationException("Invalid or expired reset code. Please request a new one.");
+
+        user.PasswordHash = HashPassword(newPassword);
+        user.IsEmailVerified = true;
+        user.UpdatedAt = DateTime.UtcNow;
+
+        latestToken.IsUsed = true;
+        await _context.SaveChangesAsync();
+    }
+
+    public async Task ChangePasswordAsync(int userId, string currentPassword, string newPassword)
+    {
+        var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId)
+            ?? throw new InvalidOperationException("User not found.");
+
+        if (!VerifyPassword(currentPassword, user.PasswordHash))
+            throw new InvalidOperationException("Current password is incorrect.");
+
+        user.PasswordHash = HashPassword(newPassword);
+        user.UpdatedAt = DateTime.UtcNow;
+        await _context.SaveChangesAsync();
+    }
+
+    private static string GenerateVerificationCode()
+    {
+        return RandomNumberGenerator.GetInt32(100000, 1000000).ToString();
+    }
+
+    private static string BuildVerificationEmail(string fullName, string code)
+    {
+        return $@"
             <div style='font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 20px;'>
                 <h2 style='color: #16a34a;'>Welcome to Akanti!</h2>
                 <p>Hi {fullName},</p>
@@ -165,8 +249,21 @@ public class AuthService : IAuthService
                 <p style='color: #6b7280; font-size: 14px;'>This code expires in 15 minutes.</p>
                 <p style='color: #6b7280; font-size: 14px;'>If you did not create an account, you can ignore this email.</p>
             </div>";
+    }
 
-        await _emailService.SendAsync(email, subject, htmlBody);
+    private static string BuildPasswordResetEmail(string fullName, string code)
+    {
+        return $@"
+            <div style='font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 20px;'>
+                <h2 style='color: #16a34a;'>Password Reset Request</h2>
+                <p>Hi {fullName},</p>
+                <p>We received a request to reset your password. Use the following code:</p>
+                <div style='background: #f3f4f6; border-radius: 8px; padding: 20px; text-align: center; margin: 20px 0;'>
+                    <span style='font-size: 32px; font-weight: bold; letter-spacing: 8px; color: #16a34a;'>{code}</span>
+                </div>
+                <p style='color: #6b7280; font-size: 14px;'>This code expires in 15 minutes.</p>
+                <p style='color: #6b7280; font-size: 14px;'>If you did not request a password reset, you can ignore this email.</p>
+            </div>";
     }
 
     private AuthResponse GenerateTokenResponse(User user)
@@ -219,96 +316,5 @@ public class AuthService : IAuthService
     private static bool VerifyPassword(string password, string hash)
     {
         return HashPassword(password) == hash;
-    }
-
-    public async Task ForgotPasswordAsync(string email)
-    {
-        var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == email);
-        if (user == null) return;
-
-        var cooldownMinutes = 10;
-        var recentToken = await _context.PasswordResetTokens
-            .Where(t => t.UserId == user.Id && t.CreatedAt > DateTime.UtcNow.AddMinutes(-cooldownMinutes))
-            .OrderByDescending(t => t.CreatedAt)
-            .FirstOrDefaultAsync();
-
-        if (recentToken != null)
-        {
-            var waitSeconds = (int)(recentToken.CreatedAt.AddMinutes(cooldownMinutes) - DateTime.UtcNow).TotalSeconds;
-            throw new InvalidOperationException($"A code was already sent. Please wait {waitSeconds / 60}m {waitSeconds % 60}s before requesting a new one.");
-        }
-
-        var random = new Random();
-        var code = random.Next(100000, 999999).ToString();
-
-        var resetToken = new PasswordResetToken
-        {
-            UserId = user.Id,
-            Code = code,
-            TokenHash = HashPassword(code),
-            ExpiresAt = DateTime.UtcNow.AddMinutes(15),
-            IsUsed = false,
-            CreatedAt = DateTime.UtcNow
-        };
-
-        _context.PasswordResetTokens.Add(resetToken);
-        await _context.SaveChangesAsync();
-
-        var subject = "Akanti - Password Reset Code";
-        var htmlBody = $@"
-            <div style='font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 20px;'>
-                <h2 style='color: #16a34a;'>Password Reset Request</h2>
-                <p>Hi {user.FullName},</p>
-                <p>We received a request to reset your password. Use the following code:</p>
-                <div style='background: #f3f4f6; border-radius: 8px; padding: 20px; text-align: center; margin: 20px 0;'>
-                    <span style='font-size: 32px; font-weight: bold; letter-spacing: 8px; color: #16a34a;'>{code}</span>
-                </div>
-                <p style='color: #6b7280; font-size: 14px;'>This code expires in 15 minutes.</p>
-                <p style='color: #6b7280; font-size: 14px;'>If you did not request a password reset, you can ignore this email.</p>
-            </div>";
-
-        await _emailService.SendAsync(user.Email, subject, htmlBody);
-    }
-
-    public async Task VerifyResetCodeAsync(string email, string code)
-    {
-        var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == email)
-            ?? throw new InvalidOperationException("User not found.");
-
-        var resetToken = await _context.PasswordResetTokens
-            .FirstOrDefaultAsync(t => t.UserId == user.Id && t.Code == code && !t.IsUsed && t.ExpiresAt > DateTime.UtcNow)
-            ?? throw new InvalidOperationException("Invalid or expired reset code.");
-    }
-
-    public async Task ResetPasswordAsync(string email, string code, string newPassword)
-    {
-        var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == email)
-            ?? throw new InvalidOperationException("User not found.");
-
-        var latestToken = await _context.PasswordResetTokens
-            .Where(t => t.UserId == user.Id && t.Code == code && t.ExpiresAt > DateTime.UtcNow)
-            .OrderByDescending(t => t.CreatedAt)
-            .FirstOrDefaultAsync()
-            ?? throw new InvalidOperationException("Invalid or expired reset code. Please request a new one.");
-
-        user.PasswordHash = HashPassword(newPassword);
-        user.IsEmailVerified = true;
-        user.UpdatedAt = DateTime.UtcNow;
-
-        latestToken.IsUsed = true;
-        await _context.SaveChangesAsync();
-    }
-
-    public async Task ChangePasswordAsync(int userId, string currentPassword, string newPassword)
-    {
-        var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId)
-            ?? throw new InvalidOperationException("User not found.");
-
-        if (!VerifyPassword(currentPassword, user.PasswordHash))
-            throw new InvalidOperationException("Current password is incorrect.");
-
-        user.PasswordHash = HashPassword(newPassword);
-        user.UpdatedAt = DateTime.UtcNow;
-        await _context.SaveChangesAsync();
     }
 }

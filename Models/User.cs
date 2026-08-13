@@ -37,7 +37,6 @@ public class User
     public ICollection<Budget> Budgets { get; set; } = new List<Budget>();
     public ICollection<Debt> Debts { get; set; } = new List<Debt>();
     public ICollection<Notification> Notifications { get; set; } = new List<Notification>();
-    public ICollection<AIRecommendation> AIRecommendations { get; set; } = new List<AIRecommendation>();
     public ICollection<AuditLog> AuditLogs { get; set; } = new List<AuditLog>();
 }
 

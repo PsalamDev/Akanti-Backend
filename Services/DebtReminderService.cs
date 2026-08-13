@@ -7,11 +7,13 @@ namespace Akanti.API.Services;
 public class DebtReminderService : BackgroundService
 {
     private readonly IServiceProvider _serviceProvider;
+    private readonly IBackgroundEmailQueue _emailQueue;
     private readonly ILogger<DebtReminderService> _logger;
 
-    public DebtReminderService(IServiceProvider serviceProvider, ILogger<DebtReminderService> logger)
+    public DebtReminderService(IServiceProvider serviceProvider, IBackgroundEmailQueue emailQueue, ILogger<DebtReminderService> logger)
     {
         _serviceProvider = serviceProvider;
+        _emailQueue = emailQueue;
         _logger = logger;
     }
 
@@ -38,7 +40,6 @@ public class DebtReminderService : BackgroundService
     {
         using var scope = _serviceProvider.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-        var emailService = scope.ServiceProvider.GetRequiredService<IEmailService>();
 
         var now = DateTime.UtcNow;
 
@@ -103,7 +104,7 @@ public class DebtReminderService : BackgroundService
                     </div>
                     """;
 
-                await emailService.SendAsync(lenderEmail, $"Akanti: Debt Reminder - {personName}", htmlBody);
+                await _emailQueue.EnqueueAsync(lenderEmail, $"Akanti: Debt Reminder - {personName}", htmlBody);
             }
 
             if (!string.IsNullOrEmpty(personEmail) && personEmail.Contains('@'))
@@ -127,7 +128,7 @@ public class DebtReminderService : BackgroundService
                     </div>
                     """;
 
-                await emailService.SendAsync(personEmail, $"Payment Reminder from {lenderName}", htmlBody);
+                await _emailQueue.EnqueueAsync(personEmail, $"Payment Reminder from {lenderName}", htmlBody);
             }
 
             debt.LastRemindedAt = now;

@@ -4,7 +4,6 @@ using Microsoft.EntityFrameworkCore;
 using Akanti.API.Data;
 using Akanti.API.DTOs.Dashboard;
 using Akanti.API.Models;
-using Akanti.API.Services;
 
 namespace Akanti.API.Controllers;
 
@@ -14,12 +13,10 @@ namespace Akanti.API.Controllers;
 public class DashboardController : ControllerBase
 {
     private readonly ApplicationDbContext _context;
-    private readonly IAIService _aiService;
 
-    public DashboardController(ApplicationDbContext context, IAIService aiService)
+    public DashboardController(ApplicationDbContext context)
     {
         _context = context;
-        _aiService = aiService;
     }
 
     private int GetUserId() => int.Parse(User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)!.Value);
@@ -112,9 +109,6 @@ public class DashboardController : ControllerBase
             })
             .ToListAsync();
 
-        decimal? healthScore = null;
-        try { healthScore = await _aiService.GetFinancialHealthScoreAsync(userId); } catch { }
-
         return Ok(new DashboardDto
         {
             TotalBalance = totalIncome - totalExpenses,
@@ -123,8 +117,7 @@ public class DashboardController : ControllerBase
             SavingsRate = monthlyIncome > 0 ? ((monthlyIncome - monthlyExpenses) / monthlyIncome) * 100 : 0,
             RecentTransactions = recentTransactions,
             Budgets = budgets,
-            UpcomingDebts = upcomingDebts,
-            FinancialHealthScore = healthScore
+            UpcomingDebts = upcomingDebts
         });
     }
 }

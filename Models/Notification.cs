@@ -29,6 +29,5 @@ public enum NotificationType
     BudgetAlert,
     DebtReminder,
     MonthlySummary,
-    SystemAlert,
-    AIRecommendation
+    SystemAlert
 }

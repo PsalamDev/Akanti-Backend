@@ -14,12 +14,12 @@ namespace Akanti.API.Controllers;
 public class DebtController : ControllerBase
 {
     private readonly ApplicationDbContext _context;
-    private readonly IEmailService _emailService;
+    private readonly IBackgroundEmailQueue _emailQueue;
 
-    public DebtController(ApplicationDbContext context, IEmailService emailService)
+    public DebtController(ApplicationDbContext context, IBackgroundEmailQueue emailQueue)
     {
         _context = context;
-        _emailService = emailService;
+        _emailQueue = emailQueue;
     }
 
     private int GetUserId() => int.Parse(User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)!.Value);
@@ -286,7 +286,7 @@ public class DebtController : ControllerBase
                 </div>
                 """;
 
-            await _emailService.SendAsync(lenderEmail, $"Reminder sent to {personName}", htmlBody);
+            await _emailQueue.EnqueueAsync(lenderEmail, $"Reminder sent to {personName}", htmlBody);
         }
 
         if (!string.IsNullOrEmpty(personEmail) && personEmail.Contains('@'))
@@ -306,7 +306,7 @@ public class DebtController : ControllerBase
                 </div>
                 """;
 
-            await _emailService.SendAsync(personEmail, $"Payment Reminder from {lenderName}", htmlBody);
+            await _emailQueue.EnqueueAsync(personEmail, $"Payment Reminder from {lenderName}", htmlBody);
         }
 
         return Ok(new { message = "Reminder sent successfully." });

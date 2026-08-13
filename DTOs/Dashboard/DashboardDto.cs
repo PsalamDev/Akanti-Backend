@@ -9,7 +9,6 @@ public class DashboardDto
     public List<RecentTransactionDto> RecentTransactions { get; set; } = new();
     public List<BudgetOverviewDto> Budgets { get; set; } = new();
     public List<UpcomingDebtDto> UpcomingDebts { get; set; } = new();
-    public decimal? FinancialHealthScore { get; set; }
 }
 
 public class RecentTransactionDto

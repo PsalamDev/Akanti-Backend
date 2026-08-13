@@ -15,7 +15,6 @@ public class ApplicationDbContext : DbContext
     public DbSet<Debt> Debts => Set<Debt>();
     public DbSet<Transaction> Transactions => Set<Transaction>();
     public DbSet<Notification> Notifications => Set<Notification>();
-    public DbSet<AIRecommendation> AIRecommendations => Set<AIRecommendation>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<PasswordResetToken> PasswordResetTokens => Set<PasswordResetToken>();
     public DbSet<EmailVerification> EmailVerifications => Set<EmailVerification>();
@@ -68,11 +67,6 @@ public class ApplicationDbContext : DbContext
             .WithMany(u => u.Notifications)
             .HasForeignKey(n => n.UserId);
 
-        modelBuilder.Entity<AIRecommendation>()
-            .HasOne(a => a.User)
-            .WithMany(u => u.AIRecommendations)
-            .HasForeignKey(a => a.UserId);
-
         modelBuilder.Entity<AuditLog>()
             .HasOne(a => a.User)
             .WithMany(u => u.AuditLogs)
@@ -118,5 +112,29 @@ public class ApplicationDbContext : DbContext
             new Category { Id = 12, Name = "Education", Type = CategoryType.Expense, IsDefault = true },
             new Category { Id = 13, Name = "Other Expense", Type = CategoryType.Expense, IsDefault = true }
         );
+
+        modelBuilder.Entity<Expense>()
+            .HasIndex(e => new { e.UserId, e.Date, e.IsDeleted });
+
+        modelBuilder.Entity<Income>()
+            .HasIndex(i => new { i.UserId, i.Date, i.IsDeleted });
+
+        modelBuilder.Entity<Budget>()
+            .HasIndex(b => new { b.UserId, b.IsActive });
+
+        modelBuilder.Entity<Debt>()
+            .HasIndex(d => new { d.UserId, d.IsDeleted, d.Status, d.DueDate });
+
+        modelBuilder.Entity<Notification>()
+            .HasIndex(n => new { n.UserId, n.IsRead, n.CreatedAt });
+
+        modelBuilder.Entity<AuditLog>()
+            .HasIndex(a => new { a.CreatedAt });
+
+        modelBuilder.Entity<EmailVerification>()
+            .HasIndex(v => new { v.UserId, v.Code, v.IsUsed, v.ExpiresAt });
+
+        modelBuilder.Entity<PasswordResetToken>()
+            .HasIndex(t => new { t.UserId, t.Code, t.IsUsed, t.ExpiresAt });
     }
 }

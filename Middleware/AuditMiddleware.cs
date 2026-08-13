@@ -1,46 +1,39 @@
 using System.Security.Claims;
-using System.Text.Json;
-using Microsoft.EntityFrameworkCore;
-using Akanti.API.Data;
 using Akanti.API.Models;
+using Akanti.API.Services;
 
 namespace Akanti.API.Middleware;
 
 public class AuditMiddleware
 {
     private readonly RequestDelegate _next;
+    private readonly IAuditLogQueue _auditLogQueue;
 
-    public AuditMiddleware(RequestDelegate next)
+    public AuditMiddleware(RequestDelegate next, IAuditLogQueue auditLogQueue)
     {
         _next = next;
+        _auditLogQueue = auditLogQueue;
     }
 
-    public async Task InvokeAsync(HttpContext context, ApplicationDbContext dbContext)
+    public async Task InvokeAsync(HttpContext context)
     {
         await _next(context);
 
         if (context.Request.Method != "GET" && context.Request.Method != "HEAD" &&
             context.Response.StatusCode < 400)
         {
-            try
-            {
-                var userId = context.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            var userIdClaim = context.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
 
-                var auditLog = new AuditLog
-                {
-                    UserId = userId != null ? int.Parse(userId) : null,
-                    Action = context.Request.Method,
-                    EntityName = GetEntityFromPath(context.Request.Path),
-                    IpAddress = context.Connection.RemoteIpAddress?.ToString(),
-                    CreatedAt = DateTime.UtcNow
-                };
-
-                dbContext.AuditLogs.Add(auditLog);
-                await dbContext.SaveChangesAsync();
-            }
-            catch
+            var entry = new AuditLog
             {
-            }
+                UserId = userIdClaim != null && int.TryParse(userIdClaim, out var parsed) ? parsed : null,
+                Action = context.Request.Method,
+                EntityName = GetEntityFromPath(context.Request.Path),
+                IpAddress = context.Connection.RemoteIpAddress?.ToString(),
+                CreatedAt = DateTime.UtcNow
+            };
+
+            await _auditLogQueue.EnqueueAsync(entry);
         }
     }
 

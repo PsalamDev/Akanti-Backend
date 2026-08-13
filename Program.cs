@@ -1,13 +1,13 @@
+using System.Security.Cryptography;
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using Akanti.API.Data;
+using Akanti.API.Models;
 using Akanti.API.Services;
 using Akanti.API.Middleware;
-
-AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -42,56 +42,18 @@ builder.Services.AddSwaggerGen(c =>
 
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
 
-// Try DATABASE_URL env var (used by Render / Supabase)
-var databaseUrl = Environment.GetEnvironmentVariable("DATABASE_URL");
-if (!string.IsNullOrEmpty(databaseUrl) && !databaseUrl.Contains("[YOUR"))
-{
-    // Convert URI format (postgresql://user:pass@host:port/db) to key=value format
-    if (databaseUrl.StartsWith("postgresql://") || databaseUrl.StartsWith("postgres://"))
-    {
-        try
-        {
-            // Manual parse to handle @ in password
-            var withoutScheme = databaseUrl.Substring(databaseUrl.IndexOf("://") + 3);
-            var atIndex = withoutScheme.LastIndexOf('@');
-            var userInfo = withoutScheme.Substring(0, atIndex);
-            var hostPart = withoutScheme.Substring(atIndex + 1);
-
-            var colonIdx = userInfo.IndexOf(':');
-            var username = colonIdx >= 0 ? Uri.UnescapeDataString(userInfo.Substring(0, colonIdx)) : Uri.UnescapeDataString(userInfo);
-            var password = colonIdx >= 0 ? Uri.UnescapeDataString(userInfo.Substring(colonIdx + 1)) : "";
-
-            // Split host:port/db
-            var slashIdx = hostPart.IndexOf('/');
-            var hostPort = slashIdx >= 0 ? hostPart.Substring(0, slashIdx) : hostPart;
-            var db = slashIdx >= 0 ? hostPart.Substring(slashIdx + 1) : "";
-
-            var portIdx = hostPort.LastIndexOf(':');
-            var host = portIdx >= 0 ? hostPort.Substring(0, portIdx) : hostPort;
-            var port = portIdx >= 0 ? hostPort.Substring(portIdx + 1) : "5432";
-
-            connectionString = $"Host={host};Port={port};Database={db};Username={username};Password={password};SSL Mode=Require;Trust Server Certificate=true;Pooling=false";
-        }
-        catch
-        {
-            Console.WriteLine("Failed to parse DATABASE_URL as URI, using raw value");
-            connectionString = databaseUrl;
-        }
-    }
-    else
-    {
-        connectionString = databaseUrl;
-    }
-}
+// Allow override via environment variable (standard convention, e.g. Azure App Service / GitHub Actions)
+var envConnectionString = Environment.GetEnvironmentVariable("ConnectionStrings__DefaultConnection");
+if (!string.IsNullOrEmpty(envConnectionString)) connectionString = envConnectionString;
 
 Console.WriteLine($"Using database: {connectionString?.Substring(0, Math.Min(connectionString?.Length ?? 0, 50))}...");
 
-builder.Services.AddDbContext<ApplicationDbContext>(options =>
-    options.UseNpgsql(connectionString, o =>
+builder.Services.AddDbContextPool<ApplicationDbContext>(options =>
+    options.UseSqlServer(connectionString, o =>
     {
         o.CommandTimeout(120);
         o.EnableRetryOnFailure(3, TimeSpan.FromSeconds(30), null);
-    }));
+    }), poolSize: 100);
 
 // Ensure configuration keys match your appsettings.json structure
 var jwtIssuer = builder.Configuration["Jwt:Issuer"];
@@ -151,9 +113,13 @@ builder.Services.AddCors(options =>
 });
 
 builder.Services.AddScoped<IAuthService, AuthService>();
-builder.Services.AddScoped<IAIService, AIService>();
-builder.Services.AddHttpClient<IAIService, AIService>();
 builder.Services.AddScoped<IEmailService, EmailService>();
+builder.Services.AddSingleton<BackgroundEmailQueue>();
+builder.Services.AddSingleton<IBackgroundEmailQueue>(sp => sp.GetRequiredService<BackgroundEmailQueue>());
+builder.Services.AddHostedService<BackgroundEmailService>();
+builder.Services.AddSingleton<AuditLogQueue>();
+builder.Services.AddSingleton<IAuditLogQueue>(sp => sp.GetRequiredService<AuditLogQueue>());
+builder.Services.AddHostedService<AuditLogProcessorService>();
 builder.Services.AddHostedService<DebtReminderService>();
 
 var app = builder.Build();
@@ -183,6 +149,35 @@ using (var scope = app.Services.CreateScope())
     {
         Console.WriteLine($"Database initialization skipped (tables likely exist): {ex.Message}");
     }
+
+    SeedAdminUser(dbContext, builder.Configuration);
 }
 
 app.Run();
+
+static void SeedAdminUser(ApplicationDbContext context, IConfiguration configuration)
+{
+    var adminEmail = configuration["AdminEmail"];
+    if (string.IsNullOrEmpty(adminEmail))
+        return;
+
+    if (context.Users.AsNoTracking().Any(u => u.Email == adminEmail))
+        return;
+
+    var adminPassword = configuration["AdminPassword"] ?? "Admin@12345";
+
+    context.Users.Add(new User
+    {
+        FullName = "Akanti Admin",
+        Email = adminEmail,
+        PasswordHash = Convert.ToBase64String(SHA256.HashData(Encoding.UTF8.GetBytes(adminPassword))),
+        UserType = UserType.PersonalFinance,
+        IsActive = true,
+        IsAdmin = true,
+        IsEmailVerified = true,
+        CreatedAt = DateTime.UtcNow
+    });
+
+    context.SaveChanges();
+    Console.WriteLine($"Seeded admin user: {adminEmail}");
+}
