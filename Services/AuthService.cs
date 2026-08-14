@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Akanti.API.Data;
 using Akanti.API.DTOs.Auth;
+using Akanti.API.Interfaces;
 using Akanti.API.Models;
 
 namespace Akanti.API.Services;

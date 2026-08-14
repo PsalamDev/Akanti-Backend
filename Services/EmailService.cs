@@ -1,13 +1,9 @@
 using MailKit.Net.Smtp;
 using MailKit.Security;
 using MimeKit;
+using Akanti.API.Interfaces;
 
 namespace Akanti.API.Services;
-
-public interface IEmailService
-{
-    Task SendAsync(string to, string subject, string htmlBody);
-}
 
 public class EmailService : IEmailService
 {

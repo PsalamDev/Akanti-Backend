@@ -1,11 +1,7 @@
 using System.Threading.Channels;
+using Akanti.API.Interfaces;
 
 namespace Akanti.API.Services;
-
-public interface IBackgroundEmailQueue
-{
-    ValueTask EnqueueAsync(string to, string subject, string htmlBody, CancellationToken cancellationToken = default);
-}
 
 public class BackgroundEmailQueue : IBackgroundEmailQueue
 {

@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Akanti.API.Data;
+using Akanti.API.Interfaces;
 using Akanti.API.Models;
 
 namespace Akanti.API.Services;

@@ -18,3 +18,18 @@ public class CategoryBreakdownDto
     public decimal Amount { get; set; }
     public double Percentage { get; set; }
 }
+
+public class ProfitLossDto
+{
+    public DateRangeDto Period { get; set; } = new();
+    public decimal Income { get; set; }
+    public decimal Expenses { get; set; }
+    public decimal NetProfitLoss { get; set; }
+    public decimal SavingsRate { get; set; }
+}
+
+public class DateRangeDto
+{
+    public DateTime Start { get; set; }
+    public DateTime End { get; set; }
+}

@@ -31,6 +31,7 @@ public class Budget
     
     public bool IsActive { get; set; } = true;
     
+    [Column(TypeName = "decimal(18,2)")]
     public decimal AlertThresholdPercentage { get; set; } = 80;
     
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

@@ -1,7 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Akanti.API.DTOs.Auth;
-using Akanti.API.Services;
+using Akanti.API.Interfaces;
 
 namespace Akanti.API.Controllers;
 

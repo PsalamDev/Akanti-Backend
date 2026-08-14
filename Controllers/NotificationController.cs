@@ -1,7 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using Akanti.API.Data;
+using Akanti.API.Interfaces;
 using Akanti.API.Models;
 
 namespace Akanti.API.Controllers;
@@ -11,11 +10,11 @@ namespace Akanti.API.Controllers;
 [Authorize]
 public class NotificationController : ControllerBase
 {
-    private readonly ApplicationDbContext _context;
+    private readonly INotificationService _notificationService;
 
-    public NotificationController(ApplicationDbContext context)
+    public NotificationController(INotificationService notificationService)
     {
-        _context = context;
+        _notificationService = notificationService;
     }
 
     private int GetUserId() => int.Parse(User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)!.Value);
@@ -23,49 +22,29 @@ public class NotificationController : ControllerBase
     [HttpGet]
     public async Task<ActionResult<List<Notification>>> GetAll([FromQuery] bool? unreadOnly)
     {
-        var query = _context.Notifications
-            .Where(n => n.UserId == GetUserId())
-            .AsQueryable();
-
-        if (unreadOnly == true)
-            query = query.Where(n => !n.IsRead);
-
-        var notifications = await query.OrderByDescending(n => n.CreatedAt).Take(50).ToListAsync();
+        var notifications = await _notificationService.GetAllAsync(GetUserId(), unreadOnly);
         return Ok(notifications);
     }
 
     [HttpPut("{id}/read")]
     public async Task<IActionResult> MarkAsRead(int id)
     {
-        var notification = await _context.Notifications
-            .FirstOrDefaultAsync(n => n.Id == id && n.UserId == GetUserId());
-
-        if (notification == null) return NotFound();
-
-        notification.IsRead = true;
-        await _context.SaveChangesAsync();
+        var marked = await _notificationService.MarkAsReadAsync(GetUserId(), id);
+        if (!marked) return NotFound();
         return NoContent();
     }
 
     [HttpPut("read-all")]
     public async Task<IActionResult> MarkAllAsRead()
     {
-        var notifications = await _context.Notifications
-            .Where(n => n.UserId == GetUserId() && !n.IsRead)
-            .ToListAsync();
-
-        foreach (var n in notifications)
-            n.IsRead = true;
-
-        await _context.SaveChangesAsync();
+        await _notificationService.MarkAllAsReadAsync(GetUserId());
         return NoContent();
     }
 
     [HttpGet("unread-count")]
     public async Task<ActionResult<object>> GetUnreadCount()
     {
-        var count = await _context.Notifications
-            .CountAsync(n => n.UserId == GetUserId() && !n.IsRead);
+        var count = await _notificationService.GetUnreadCountAsync(GetUserId());
         return Ok(new { count });
     }
 }
