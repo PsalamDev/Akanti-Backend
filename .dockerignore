@@ -1,0 +1,26 @@
+# Keep local secrets out of the image. appsettings.Development.json holds real
+# credentials locally and is gitignored, but the Docker build copies the working
+# tree, so it must be excluded here too.
+appsettings.Development.json
+appsettings.Production.json
+appsettings.Local.json
+.env
+.env.*
+
+# Build artifacts (rebuilt inside the image)
+bin/
+obj/
+out/
+
+# Tooling / editor files
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+
+# Repo metadata
+.git/
+.gitignore
+Dockerfile
+.dockerignore
