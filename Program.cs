@@ -47,10 +47,10 @@ var connectionString = builder.Configuration.GetConnectionString("DefaultConnect
 var envConnectionString = Environment.GetEnvironmentVariable("ConnectionStrings__DefaultConnection");
 if (!string.IsNullOrEmpty(envConnectionString)) connectionString = envConnectionString;
 
-Console.WriteLine($"Using database: {connectionString?.Substring(0, Math.Min(connectionString?.Length ?? 0, 50))}...");
+Console.WriteLine("Using database: PostgreSQL (DefaultConnection)");
 
 builder.Services.AddDbContextPool<ApplicationDbContext>(options =>
-    options.UseSqlServer(connectionString, o =>
+    options.UseNpgsql(connectionString, o =>
     {
         o.CommandTimeout(120);
         o.EnableRetryOnFailure(3, TimeSpan.FromSeconds(30), null);

@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Akanti.API.Models;
 
 namespace Akanti.API.Data;
@@ -136,5 +137,34 @@ public class ApplicationDbContext : DbContext
 
         modelBuilder.Entity<PasswordResetToken>()
             .HasIndex(t => new { t.UserId, t.Code, t.IsUsed, t.ExpiresAt });
+
+        // PostgreSQL compatibility: the Npgsql provider maps DateTime to 'timestamp with
+        // time zone' and only accepts UTC values. This app writes a mix of Kind=Utc
+        // (DateTime.UtcNow) and Kind=Unspecified (date-only values from HTTP), so every
+        // DateTime is normalised to UTC on write without changing the value. Because the
+        // columns keep the provider's default mapping, date/time query constants
+        // (e.g. DateTime.UtcNow) are translated consistently and cannot type-clash.
+        foreach (var entityType in modelBuilder.Model.GetEntityTypes())
+        {
+            foreach (var property in entityType.GetProperties())
+            {
+                var clrType = Nullable.GetUnderlyingType(property.ClrType) ?? property.ClrType;
+                if (clrType != typeof(DateTime))
+                    continue;
+
+                if (property.ClrType == typeof(DateTime))
+                {
+                    property.SetValueConverter(new ValueConverter<DateTime, DateTime>(
+                        v => DateTime.SpecifyKind(v, DateTimeKind.Utc),
+                        v => v));
+                }
+                else
+                {
+                    property.SetValueConverter(new ValueConverter<DateTime?, DateTime?>(
+                        v => v.HasValue ? DateTime.SpecifyKind(v.Value, DateTimeKind.Utc) : v,
+                        v => v));
+                }
+            }
+        }
     }
 }
