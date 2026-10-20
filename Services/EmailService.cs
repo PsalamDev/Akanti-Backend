@@ -1,9 +1,9 @@
 using MailKit.Net.Smtp;
 using MailKit.Security;
 using MimeKit;
-using Akanti.API.Interfaces;
 
 namespace Akanti.API.Services;
+
 
 public class EmailService : IEmailService
 {

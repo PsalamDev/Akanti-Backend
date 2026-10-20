@@ -1,7 +1,7 @@
 using System.Threading.Channels;
-using Akanti.API.Interfaces;
 
 namespace Akanti.API.Services;
+
 
 public class BackgroundEmailQueue : IBackgroundEmailQueue
 {

@@ -1,4 +1,3 @@
-namespace Akanti.API.Interfaces;
 
 public interface IBackgroundEmailQueue
 {

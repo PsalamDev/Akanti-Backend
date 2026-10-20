@@ -6,3 +6,7 @@ obj/
 # appsettings.json is committed with placeholders; secrets come from env vars
 *.Development.json
 *.Production.json
+appsettings.Local.json
+.env
+.env.*
+!.env.example

@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Akanti.API.Data;
 using Akanti.API.DTOs.Auth;
+using Akanti.API.Exceptions;
 using Akanti.API.Interfaces;
 using Akanti.API.Models;
 
@@ -26,8 +27,10 @@ public class AuthService : IAuthService
 
     public async Task<RegisterResponse> RegisterAsync(RegisterRequest request)
     {
+        // Anti-enumeration: an existing email must produce the same response shape and
+        // timing class as a fresh registration. Never reveal whether the account exists.
         if (await _context.Users.AsNoTracking().AnyAsync(u => u.Email == request.Email))
-            throw new InvalidOperationException("Email Address already exists.");
+            throw new AuthFlowException("Email already registered.");
 
         var adminEmail = _configuration["AdminEmail"];
         var isAdmin = !string.IsNullOrEmpty(adminEmail) &&
@@ -67,8 +70,7 @@ public class AuthService : IAuthService
             return new RegisterResponse
             {
                 Message = "Account created. Please check your email for a verification code.",
-                Email = request.Email,
-                VerificationCode = code
+                Email = request.Email
             };
         }
 
