@@ -45,13 +45,33 @@ builder.Services.AddSwaggerGen(c =>
     });
 });
 
+// Configuration already merges appsettings.json with the environment, so
+// ConnectionStrings__DefaultConnection overrides the committed default.
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+var connectionFromEnv = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("ConnectionStrings__DefaultConnection"));
 
-// Allow override via environment variable (standard convention, e.g. Azure App Service / GitHub Actions)
-var envConnectionString = Environment.GetEnvironmentVariable("ConnectionStrings__DefaultConnection");
-if (!string.IsNullOrEmpty(envConnectionString)) connectionString = envConnectionString;
-
-Console.WriteLine("Using database: PostgreSQL (DefaultConnection)");
+// Log the resolved host (never the password) so a misconfigured deploy is
+// obvious in the logs instead of failing later with a connection error.
+var dbSummary = "not set";
+if (!string.IsNullOrWhiteSpace(connectionString))
+{
+    try
+    {
+        var kv = connectionString.Split(';')
+            .Select(p => p.Split('=', 2))
+            .Where(p => p.Length == 2)
+            .ToDictionary(p => p[0].Trim().ToLowerInvariant(), p => p[1].Trim());
+        var host = kv.TryGetValue("host", out var h) ? h : "?";
+        var db = kv.TryGetValue("database", out var d) ? d : "?";
+        var port = kv.TryGetValue("port", out var pt) ? pt : "?";
+        dbSummary = $"{host}:{port}/{db}";
+    }
+    catch
+    {
+        dbSummary = "(unparseable connection string)";
+    }
+}
+Console.WriteLine($"Using database: {dbSummary} (source: {(connectionFromEnv ? "environment" : "appsettings.json")})");
 
 builder.Services.AddDbContextPool<ApplicationDbContext>(options =>
     options.UseNpgsql(connectionString, o =>
