@@ -102,7 +102,7 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowReactApp", policy =>
     {
-        var origins = new List<string> { "http://localhost:3000", "http://localhost:5173" };
+        var origins = new List<string> { "http://localhost:3000", "http://localhost:5173", "http://localhost:5174", "http://localhost:5180" };
         var vercelUrl = Environment.GetEnvironmentVariable("FRONTEND_URL");
         if (!string.IsNullOrEmpty(vercelUrl)) origins.Add(vercelUrl);
 
@@ -123,6 +123,8 @@ builder.Services.AddScoped<ICashFlowService, CashFlowService>();
 builder.Services.AddScoped<IDashboardService, DashboardService>();
 builder.Services.AddScoped<IReportService, ReportService>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
+builder.Services.AddScoped<IAdminService, AdminService>();
+builder.Services.AddScoped<ICategoryService, CategoryService>();
 builder.Services.AddSingleton<BackgroundEmailQueue>();
 builder.Services.AddSingleton<IBackgroundEmailQueue>(sp => sp.GetRequiredService<BackgroundEmailQueue>());
 builder.Services.AddHostedService<BackgroundEmailService>();

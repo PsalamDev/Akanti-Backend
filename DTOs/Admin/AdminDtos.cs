@@ -1,5 +1,14 @@
 namespace Akanti.API.DTOs.Admin;
 
+public class PagedResult<T>
+{
+    public List<T> Items { get; set; } = new();
+    public int Page { get; set; }
+    public int PageSize { get; set; }
+    public int TotalCount { get; set; }
+    public int TotalPages { get; set; }
+}
+
 public class AdminDashboardDto
 {
     public int TotalUsers { get; set; }
@@ -23,12 +32,15 @@ public class AdminUserDto
     public bool IsActive { get; set; }
     public bool IsAdmin { get; set; }
     public DateTime CreatedAt { get; set; }
+}
+
+public class AdminUserTotalsDto
+{
+    public int UserId { get; set; }
     public decimal TotalIncome { get; set; }
-    public decimal TotalExpenses { get; set; }
     public int IncomeCount { get; set; }
+    public decimal TotalExpenses { get; set; }
     public int ExpenseCount { get; set; }
-    public int BudgetCount { get; set; }
-    public int DebtCount { get; set; }
 }
 
 public class AdminUserDetailDto
@@ -100,4 +112,11 @@ public class AdminAuditLogDto
     public int? EntityId { get; set; }
     public string? IpAddress { get; set; }
     public DateTime CreatedAt { get; set; }
+}
+
+public class AdminIncomeTotalDto
+{
+    public decimal TotalAmount { get; set; }
+    public int Count { get; set; }
+    public int UserCount { get; set; }
 }

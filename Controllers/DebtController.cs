@@ -66,7 +66,7 @@ public class DebtController : ControllerBase
     }
 
     [HttpGet("upcoming")]
-    public async Task<ActionResult<List<DebtDto>>> GetUpcoming([FromQuery] int days = 30)
+    public async Task<ActionResult<List<DebtDto>>> GetUpcomingDebts([FromQuery] int days = 30)
     {
         var debts = await _debtService.GetUpcomingAsync(GetUserId(), days);
         return Ok(debts);

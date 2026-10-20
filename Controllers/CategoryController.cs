@@ -1,7 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using Akanti.API.Data;
+using Akanti.API.Interfaces;
 using Akanti.API.Models;
 
 namespace Akanti.API.Controllers;
@@ -11,31 +10,23 @@ namespace Akanti.API.Controllers;
 [Authorize]
 public class CategoryController : ControllerBase
 {
-    private readonly ApplicationDbContext _context;
+    private readonly ICategoryService _categoryService;
 
-    public CategoryController(ApplicationDbContext context)
+    public CategoryController(ICategoryService categoryService)
     {
-        _context = context;
+        _categoryService = categoryService;
     }
 
     [HttpGet]
     public async Task<ActionResult<List<Category>>> GetAll([FromQuery] string? type)
     {
-        var query = _context.Categories
-            .Where(c => c.IsDefault || c.UserId == null)
-            .AsQueryable();
-
-        if (!string.IsNullOrEmpty(type) && Enum.TryParse<CategoryType>(type, true, out var categoryType))
-            query = query.Where(c => c.Type == categoryType);
-
-        var categories = await query.OrderBy(c => c.Name).ToListAsync();
-        return Ok(categories);
+        return Ok(await _categoryService.GetAllAsync(type));
     }
 
     [HttpGet("{id}")]
     public async Task<ActionResult<Category>> GetById(int id)
     {
-        var category = await _context.Categories.FindAsync(id);
+        var category = await _categoryService.GetByIdAsync(id);
         if (category == null) return NotFound();
         return Ok(category);
     }
