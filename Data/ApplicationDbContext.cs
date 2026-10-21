@@ -20,6 +20,13 @@ public class ApplicationDbContext : DbContext
     public DbSet<PasswordResetToken> PasswordResetTokens => Set<PasswordResetToken>();
     public DbSet<EmailVerification> EmailVerifications => Set<EmailVerification>();
 
+    // Invoicing / PayPal
+    public DbSet<Customer> Customers => Set<Customer>();
+    public DbSet<Invoice> Invoices => Set<Invoice>();
+    public DbSet<InvoiceItem> InvoiceItems => Set<InvoiceItem>();
+    public DbSet<PayPalWebhookEvent> PayPalWebhookEvents => Set<PayPalWebhookEvent>();
+    public DbSet<InvoiceDraft> InvoiceDrafts => Set<InvoiceDraft>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
@@ -97,6 +104,79 @@ public class ApplicationDbContext : DbContext
             .HasOne(e => e.User)
             .WithMany()
             .HasForeignKey(e => e.UserId);
+
+        // --- Invoicing / PayPal ---
+
+        modelBuilder.Entity<Customer>()
+            .HasOne(c => c.User)
+            .WithMany()
+            .HasForeignKey(c => c.UserId);
+
+        modelBuilder.Entity<Invoice>()
+            .HasOne(i => i.User)
+            .WithMany()
+            .HasForeignKey(i => i.UserId);
+
+        modelBuilder.Entity<Invoice>()
+            .HasOne(i => i.Customer)
+            .WithMany(c => c.Invoices)
+            .HasForeignKey(i => i.CustomerId);
+
+        // No action on delete: an income record must not disappear if its invoice is removed.
+        modelBuilder.Entity<Invoice>()
+            .HasOne(i => i.Income)
+            .WithMany()
+            .HasForeignKey(i => i.IncomeId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        modelBuilder.Entity<InvoiceItem>()
+            .HasOne(it => it.Invoice)
+            .WithMany(i => i.Items)
+            .HasForeignKey(it => it.InvoiceId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<InvoiceDraft>()
+            .HasOne(d => d.User)
+            .WithMany()
+            .HasForeignKey(d => d.UserId);
+
+        modelBuilder.Entity<InvoiceDraft>()
+            .HasOne(d => d.Invoice)
+            .WithMany()
+            .HasForeignKey(d => d.InvoiceId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        // Invoice numbers are unique per user; soft-deleted rows would block reuse, so
+        // the index is filtered to live rows.
+        modelBuilder.Entity<Invoice>()
+            .HasIndex(i => new { i.UserId, i.Number })
+            .IsUnique()
+            .HasFilter("\"IsDeleted\" = false");
+
+        // PayPal's invoice id, when present, must map to exactly one local row.
+        modelBuilder.Entity<Invoice>()
+            .HasIndex(i => i.PayPalInvoiceId)
+            .IsUnique()
+            .HasFilter("\"PayPalInvoiceId\" IS NOT NULL");
+
+        modelBuilder.Entity<Invoice>()
+            .HasIndex(i => new { i.UserId, i.Status, i.DueDate, i.IsDeleted });
+
+        modelBuilder.Entity<Customer>()
+            .HasIndex(c => new { c.UserId, c.Email })
+            .IsUnique()
+            .HasFilter("\"IsDeleted\" = false");
+
+        // Idempotency: a PayPal event id may only be ingested once.
+        modelBuilder.Entity<PayPalWebhookEvent>()
+            .HasIndex(e => e.PayPalEventId)
+            .IsUnique();
+
+        modelBuilder.Entity<PayPalWebhookEvent>()
+            .HasIndex(e => new { e.ProcessedAt, e.ReceivedAt });
+
+        modelBuilder.Entity<InvoiceDraft>()
+            .HasIndex(d => new { d.UserId, d.Status, d.UpdatedAt });
 
         modelBuilder.Entity<Category>().HasData(
             new Category { Id = 1, Name = "Salary", Type = CategoryType.Income, IsDefault = true },
