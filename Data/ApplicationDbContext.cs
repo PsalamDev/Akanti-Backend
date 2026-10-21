@@ -26,6 +26,8 @@ public class ApplicationDbContext : DbContext
     public DbSet<InvoiceItem> InvoiceItems => Set<InvoiceItem>();
     public DbSet<PayPalWebhookEvent> PayPalWebhookEvents => Set<PayPalWebhookEvent>();
     public DbSet<InvoiceDraft> InvoiceDrafts => Set<InvoiceDraft>();
+    public DbSet<AiChatSession> AiChatSessions => Set<AiChatSession>();
+    public DbSet<AiChatMessage> AiChatMessages => Set<AiChatMessage>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -187,6 +189,25 @@ public class ApplicationDbContext : DbContext
 
         modelBuilder.Entity<InvoiceDraft>()
             .HasIndex(d => new { d.UserId, d.Status, d.UpdatedAt });
+
+        // AI conversations. A session belongs to exactly one user; the (UserId,
+        // LastMessageAt) index backs the session list, which is always ordered by
+        // most recent activity.
+        modelBuilder.Entity<AiChatSession>()
+            .HasOne(s => s.User)
+            .WithMany(u => u.AiChatSessions)
+            .HasForeignKey(s => s.UserId);
+
+        modelBuilder.Entity<AiChatSession>()
+            .HasIndex(s => new { s.UserId, s.LastMessageAt });
+
+        modelBuilder.Entity<AiChatMessage>()
+            .HasOne(m => m.Session)
+            .WithMany(s => s.Messages)
+            .HasForeignKey(m => m.SessionId);
+
+        modelBuilder.Entity<AiChatMessage>()
+            .HasIndex(m => new { m.SessionId, m.CreatedAt });
 
         modelBuilder.Entity<Category>().HasData(
             new Category { Id = 1, Name = "Salary", Type = CategoryType.Income, IsDefault = true },

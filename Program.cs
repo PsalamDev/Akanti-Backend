@@ -214,6 +214,33 @@ builder.Services.AddRateLimiter(options =>
     // Code checking (verify-email / verify-reset-code): 15 per IP per 5 minutes,
     // which still allows honest retries after a typo but stops brute-forcing.
     options.AddPolicy("auth-verify", http => Partition(http, permitLimit: 15, TimeSpan.FromMinutes(5), segments: 5));
+
+    // AI endpoints cost money per call, so they are partitioned by the signed-in user
+    // rather than by IP. Several users behind one office connection would otherwise
+    // share a single allowance, while one user cannot multiply the bill by switching
+    // address.
+    static string UserKey(HttpContext http)
+    {
+        var id = http.User?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        return string.IsNullOrEmpty(id) ? ClientKey(http) : $"user:{id}";
+    }
+
+    static RateLimitPartition<string> PartitionByUser(HttpContext http, int permitLimit, TimeSpan window, int segments) =>
+        RateLimitPartition.GetSlidingWindowLimiter(
+            UserKey(http),
+            _ => new SlidingWindowRateLimiterOptions
+            {
+                PermitLimit = permitLimit,
+                Window = window,
+                SegmentsPerWindow = segments,
+                QueueLimit = 0
+            });
+
+    // Generating insights: 20 per user per 10 minutes.
+    options.AddPolicy("ai-insights", http => PartitionByUser(http, permitLimit: 20, TimeSpan.FromMinutes(10), segments: 5));
+
+    // Conversational turns: 30 per user per 10 minutes.
+    options.AddPolicy("ai-chat", http => PartitionByUser(http, permitLimit: 30, TimeSpan.FromMinutes(10), segments: 5));
 });
 
 builder.Services.AddScoped<IAuthService, AuthService>();
@@ -230,6 +257,10 @@ builder.Services.AddScoped<IAdminService, AdminService>();
 builder.Services.AddScoped<ICategoryService, CategoryService>();
 builder.Services.AddScoped<ICustomerService, CustomerService>();
 builder.Services.AddScoped<IInvoiceService, InvoiceService>();
+builder.Services.AddScoped<IFinancialAnalysisService, FinancialAnalysisService>();
+builder.Services.AddScoped<IAiProviderClient, AiProviderClient>();
+builder.Services.AddScoped<IAiInsightsService, AiInsightsService>();
+builder.Services.AddScoped<IAiChatService, AiChatService>();
 builder.Services.AddSingleton<BackgroundEmailQueue>();
 builder.Services.AddSingleton<IBackgroundEmailQueue>(sp => sp.GetRequiredService<BackgroundEmailQueue>());
 builder.Services.AddHostedService<BackgroundEmailService>();
@@ -238,6 +269,14 @@ builder.Services.AddHostedService<BackgroundEmailService>();
 // connection from the deployed app times out. A named client gives one pooled,
 // reusable handler for every send.
 builder.Services.AddHttpClient("EmailApi", c => c.Timeout = TimeSpan.FromSeconds(20));
+
+// The AI provider gets a longer timeout: a model writing a full set of insights can
+// take considerably longer than an email send.
+builder.Services.AddHttpClient("AiApi", c => c.Timeout = TimeSpan.FromSeconds(60));
+
+// Insights are cached briefly, so opening the page does not call the provider every
+// time. The cache is in-process, which is enough for the short TTL used here.
+builder.Services.AddMemoryCache();
 builder.Services.AddSingleton<AuditLogQueue>();
 builder.Services.AddSingleton<IAuditLogQueue>(sp => sp.GetRequiredService<AuditLogQueue>());
 builder.Services.AddHostedService<AuditLogProcessorService>();
@@ -357,6 +396,31 @@ using (var scope = app.Services.CreateScope())
         Console.WriteLine(
             $"WARNING: Email:Provider is '{emailProvider}' but Email:ApiKey is empty. " +
             "Sends will fail. Set Email__ApiKey (double underscore) in the environment.");
+    }
+}
+
+// The AI provider has the same failure shape as mail — a missing key or a wrong
+// provider name — but the symptom is subtler, because the app falls back to the
+// rule-based insights and still looks like it works. Print the resolved state at
+// boot so it is obvious when the AI commentary is silently not being used.
+// Never print the key.
+{
+    var aiProvider = (builder.Configuration["Ai:Provider"] ?? "").Trim();
+    var aiModel = (builder.Configuration["Ai:Model"] ?? "").Trim();
+    var aiEnabled = builder.Configuration.GetValue("Ai:Enabled", true);
+    var hasAiKey = !string.IsNullOrWhiteSpace(builder.Configuration["Ai:ApiKey"]);
+
+    Console.WriteLine(
+        $"AI configuration: provider={(aiProvider == "" ? "(not set)" : aiProvider)}, " +
+        $"model={(aiModel == "" ? "(default)" : aiModel)}, " +
+        $"enabled={aiEnabled}, " +
+        $"apiKey={(hasAiKey ? "set" : "not set")}");
+
+    if (aiEnabled && aiProvider != "" && !hasAiKey)
+    {
+        Console.WriteLine(
+            $"WARNING: Ai:Provider is '{aiProvider}' but Ai:ApiKey is empty. " +
+            "The AI features will fall back to rule-based insights. Set Ai__ApiKey (double underscore) in the environment.");
     }
 }
 

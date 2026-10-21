@@ -38,6 +38,7 @@ public class User
     public ICollection<Debt> Debts { get; set; } = new List<Debt>();
     public ICollection<Notification> Notifications { get; set; } = new List<Notification>();
     public ICollection<AuditLog> AuditLogs { get; set; } = new List<AuditLog>();
+    public ICollection<AiChatSession> AiChatSessions { get; set; } = new List<AiChatSession>();
 }
 
 public enum UserType

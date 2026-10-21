@@ -11,6 +11,11 @@ The API creates the whole schema on first startup, **except** one index that EF 
 cannot express in the model. Run `003_email_case_insensitive_unique.sql` once against
 the new database as well, so a fresh database ends up identical to a migrated one.
 
+The chat tables (`AiChatSessions`, `AiChatMessages`) *are* part of the model, so a fresh
+database gets them from `EnsureCreated()`. Running `004_ai_chat.sql` against a fresh
+database is harmless — every statement in it is guarded — and is a useful way to confirm
+the indexes are present.
+
 ## Adding tables to an existing database
 
 Run the relevant script from this folder against the target database:
@@ -23,6 +28,7 @@ psql "Host=...;Port=5432;Database=...;Username=...;Password=..." -f deploy/sql/0
 |---|---|
 | `002_paypal_invoicing.sql` | `Customers`, `Invoices`, `InvoiceItems`, `PayPalWebhookEvents`, `InvoiceDrafts` |
 | `003_email_case_insensitive_unique.sql` | Replaces the case-sensitive `IX_Users_Email` with a unique index over `LOWER("Email")` |
+| `004_ai_chat.sql` | `AiChatSessions`, `AiChatMessages` — the conversational panel's conversations |
 
 Each script is written to be run once. It wraps its work in a transaction; if it reports
 that a relation already exists, the change is already applied.
