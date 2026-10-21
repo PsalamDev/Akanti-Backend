@@ -236,9 +236,6 @@ builder.Services.AddRateLimiter(options =>
                 QueueLimit = 0
             });
 
-    // Generating insights: 20 per user per 10 minutes.
-    options.AddPolicy("ai-insights", http => PartitionByUser(http, permitLimit: 20, TimeSpan.FromMinutes(10), segments: 5));
-
     // Conversational turns: 30 per user per 10 minutes.
     options.AddPolicy("ai-chat", http => PartitionByUser(http, permitLimit: 30, TimeSpan.FromMinutes(10), segments: 5));
 });
@@ -262,7 +259,6 @@ builder.Services.AddScoped<IFinancialAnalysisService, FinancialAnalysisService>(
 // model the provider actually offers. Providers retire model names without warning, and
 // remembering the one that worked means a retired name does not need a redeploy to fix.
 builder.Services.AddSingleton<IAiProviderClient, AiProviderClient>();
-builder.Services.AddScoped<IAiInsightsService, AiInsightsService>();
 builder.Services.AddScoped<IAiChatService, AiChatService>();
 builder.Services.AddSingleton<BackgroundEmailQueue>();
 builder.Services.AddSingleton<IBackgroundEmailQueue>(sp => sp.GetRequiredService<BackgroundEmailQueue>());
@@ -273,13 +269,10 @@ builder.Services.AddHostedService<BackgroundEmailService>();
 // reusable handler for every send.
 builder.Services.AddHttpClient("EmailApi", c => c.Timeout = TimeSpan.FromSeconds(20));
 
-// The AI provider gets a longer timeout: a model writing a full set of insights can
-// take considerably longer than an email send.
+// The AI provider gets a longer timeout: a model writing an answer can take
+// considerably longer than an email send.
 builder.Services.AddHttpClient("AiApi", c => c.Timeout = TimeSpan.FromSeconds(60));
 
-// Insights are cached briefly, so opening the page does not call the provider every
-// time. The cache is in-process, which is enough for the short TTL used here.
-builder.Services.AddMemoryCache();
 builder.Services.AddSingleton<AuditLogQueue>();
 builder.Services.AddSingleton<IAuditLogQueue>(sp => sp.GetRequiredService<AuditLogQueue>());
 builder.Services.AddHostedService<AuditLogProcessorService>();
@@ -404,8 +397,8 @@ using (var scope = app.Services.CreateScope())
 
 // The AI provider has the same failure shape as mail — a missing key or a wrong
 // provider name — but the symptom is subtler, because the app falls back to the
-// rule-based insights and still looks like it works. Print the resolved state at
-// boot so it is obvious when the AI commentary is silently not being used.
+// answers it can compute from the records and still looks like it works. Print the
+// resolved state at boot so it is obvious when the model is silently not being used.
 // Never print the key.
 {
     var aiProvider = (builder.Configuration["Ai:Provider"] ?? "").Trim();
@@ -423,7 +416,7 @@ using (var scope = app.Services.CreateScope())
     {
         Console.WriteLine(
             $"WARNING: Ai:Provider is '{aiProvider}' but Ai:ApiKey is empty. " +
-            "The AI features will fall back to rule-based insights. Set Ai__ApiKey (double underscore) in the environment.");
+            "The assistant will answer from your records only. Set Ai__ApiKey (double underscore) in the environment.");
     }
 }
 

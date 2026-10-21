@@ -55,8 +55,8 @@ public class AiStatusDto
     public string Model { get; set; } = string.Empty;
 
     /// <summary>
-    /// "ai" when the model writes the commentary, "rules" when the deterministic
-    /// fallback does.
+    /// "ai" when the model answers, "records" when the assistant falls back to the
+    /// figures held in the database.
     /// </summary>
-    public string Mode { get; set; } = "rules";
+    public string Mode { get; set; } = "records";
 }

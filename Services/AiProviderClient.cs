@@ -163,7 +163,7 @@ public class AiProviderClient : IAiProviderClient
     /// The models to try, in order. The configured model comes first, then a short list
     /// of known-good alternatives. Providers retire model names without warning — Gemini
     /// withdrew <c>gemini-2.5-flash</c> from new accounts — so the feature keeps
-    /// working instead of quietly falling back to the rule-based insights.
+    /// working instead of quietly answering from the records alone.
     /// </summary>
     private IReadOnlyList<string> CandidateModels()
     {

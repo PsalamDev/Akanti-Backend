@@ -11,45 +11,34 @@ namespace Akanti.API.Controllers;
 [Authorize]
 public class AiController : ControllerBase
 {
-    private readonly IAiInsightsService _insights;
+    private readonly IAiProviderClient _provider;
     private readonly IAiChatService _chat;
 
-    public AiController(IAiInsightsService insights, IAiChatService chat)
+    public AiController(IAiProviderClient provider, IAiChatService chat)
     {
-        _insights = insights;
+        _provider = provider;
         _chat = chat;
     }
 
     private int GetUserId() => int.Parse(User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)!.Value);
 
     /// <summary>
-    /// Whether the AI features are usable, and how. Never contains a secret.
+    /// Whether the assistant is usable, and how. Never contains a secret.
     /// </summary>
     [HttpGet("status")]
     [AllowAnonymous]
     public ActionResult<AiStatusDto> GetStatus()
     {
-        return Ok(_insights.GetStatus());
-    }
+        var configured = _provider.IsConfigured;
 
-    /// <summary>
-    /// Insights for the current period. Results are cached briefly.
-    /// </summary>
-    [HttpGet("insights")]
-    [EnableRateLimiting("ai-insights")]
-    public async Task<ActionResult<InsightsDto>> GetInsights()
-    {
-        return Ok(await _insights.GetInsightsAsync(GetUserId()));
-    }
-
-    /// <summary>
-    /// Regenerates the insights, ignoring the cache.
-    /// </summary>
-    [HttpPost("insights/refresh")]
-    [EnableRateLimiting("ai-insights")]
-    public async Task<ActionResult<InsightsDto>> RefreshInsights()
-    {
-        return Ok(await _insights.GetInsightsAsync(GetUserId(), forceRefresh: true));
+        return Ok(new AiStatusDto
+        {
+            Enabled = _provider.IsEnabled,
+            Configured = configured,
+            Provider = configured ? _provider.Provider : "none",
+            Model = configured ? _provider.Model : string.Empty,
+            Mode = configured ? "ai" : "records"
+        });
     }
 
     [HttpGet("chat/sessions")]

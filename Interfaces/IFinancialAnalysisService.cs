@@ -11,9 +11,9 @@ public interface IFinancialAnalysisService
     Task<FinancialSnapshotDto> BuildSnapshotAsync(int userId, DateTime? referenceMonth = null);
 
     /// <summary>
-    /// Produces the deterministic insights from a snapshot. These are the fallback
+    /// Produces the deterministic findings from a snapshot. These are the fallback
     /// when no AI provider is configured, and the factual baseline the model is asked
-    /// to interpret.
+    /// to work from.
     /// </summary>
-    InsightsDto BuildRuleBasedInsights(FinancialSnapshotDto snapshot);
+    FindingsDto BuildFindings(FinancialSnapshotDto snapshot);
 }

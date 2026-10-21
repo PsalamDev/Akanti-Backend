@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Akanti.API.Data;
 using Akanti.API.DTOs.Ai;
@@ -8,13 +10,13 @@ namespace Akanti.API.Services;
 
 /// <summary>
 /// Computes the aggregate financial picture for a user, and the deterministic
-/// insights derived from it.
+/// findings derived from it.
 ///
 /// This service is the single source of truth for what data may be shown to the AI
 /// provider. The snapshot it returns deliberately excludes transaction titles,
 /// descriptions, counterparty details, individual amounts and dates — only totals
-/// and trends. Both the insights page and the conversational panel are built from
-/// this one snapshot, so they cannot drift apart in what they disclose.
+/// and trends. The assistant is built from this one snapshot, so it cannot drift
+/// apart from what the app itself knows.
 /// </summary>
 public class FinancialAnalysisService : IFinancialAnalysisService
 {
@@ -225,39 +227,33 @@ public class FinancialAnalysisService : IFinancialAnalysisService
     }
 
     // -----------------------------------------------------------------------
-    // Rule-based insights
+    // Findings
     // -----------------------------------------------------------------------
 
-    public InsightsDto BuildRuleBasedInsights(FinancialSnapshotDto snapshot)
+    public FindingsDto BuildFindings(FinancialSnapshotDto snapshot)
     {
-        var insights = new InsightsDto
-        {
-            PeriodLabel = snapshot.PeriodLabel,
-            GeneratedAt = DateTime.UtcNow,
-            Source = "rules",
-            Snapshot = snapshot
-        };
+        var findings = new FindingsDto();
 
         if (snapshot.TransactionCount == 0 && snapshot.MonthsWithData == 0)
         {
-            insights.Summary = $"No transactions recorded yet, so there is nothing to analyse for {snapshot.PeriodLabel}.";
-            insights.Recommendations.Add(new InsightItemDto
+            findings.Summary = $"No transactions recorded yet, so there is nothing to analyse for {snapshot.PeriodLabel}.";
+            findings.Recommendations.Add(new InsightItemDto
             {
                 Title = "Add your first income and expense",
                 Detail = "Once Akanti has a few transactions, it can spot patterns in your spending and suggest where to cut back.",
                 Action = "Go to Income and Expenses to record your first transactions.",
                 Severity = "info"
             });
-            return insights;
+            return findings;
         }
 
-        insights.Summary = BuildSummary(snapshot);
+        findings.Summary = BuildSummary(snapshot);
 
         // --- Highlights ---------------------------------------------------
         if (snapshot.Income > 0)
         {
             var band = DescribeSavingsBand(snapshot.SavingsRate);
-            insights.Highlights.Add(new InsightItemDto
+            findings.Highlights.Add(new InsightItemDto
             {
                 Title = $"Savings rate is {snapshot.SavingsRate:0.#}%",
                 Detail = band,
@@ -271,7 +267,7 @@ public class FinancialAnalysisService : IFinancialAnalysisService
         var topCategory = snapshot.ExpenseByCategory.FirstOrDefault();
         if (topCategory != null && topCategory.Amount > 0)
         {
-            insights.Highlights.Add(new InsightItemDto
+            findings.Highlights.Add(new InsightItemDto
             {
                 Title = $"Biggest spending area is {topCategory.Name}",
                 Detail = $"{topCategory.Name} accounts for {topCategory.SharePercent:0.#}% of this month's spending.",
@@ -287,7 +283,7 @@ public class FinancialAnalysisService : IFinancialAnalysisService
             var change = (snapshot.Expenses - snapshot.PreviousExpenses) / snapshot.PreviousExpenses * 100;
             if (Math.Abs(change) >= 5)
             {
-                insights.Highlights.Add(new InsightItemDto
+                findings.Highlights.Add(new InsightItemDto
                 {
                     Title = change > 0
                         ? $"Spending is up {change:0.#}% on last month"
@@ -306,7 +302,7 @@ public class FinancialAnalysisService : IFinancialAnalysisService
 
         if (healthyBudgets.Count > 0)
         {
-            insights.Highlights.Add(new InsightItemDto
+            findings.Highlights.Add(new InsightItemDto
             {
                 Title = $"{healthyBudgets.Count} budget{(healthyBudgets.Count == 1 ? "" : "s")} on track",
                 Detail = string.Join(", ", healthyBudgets.Select(b => $"{b.Name} at {b.PercentageUsed:0.#}%")),
@@ -317,7 +313,7 @@ public class FinancialAnalysisService : IFinancialAnalysisService
         // --- Warnings -----------------------------------------------------
         if (snapshot.Net < 0)
         {
-            insights.Warnings.Add(new InsightItemDto
+            findings.Warnings.Add(new InsightItemDto
             {
                 Title = "You spent more than you earned this month",
                 Detail = $"Spending exceeded income by {Math.Abs(snapshot.Net):0.##}.",
@@ -327,7 +323,7 @@ public class FinancialAnalysisService : IFinancialAnalysisService
         }
         else if (snapshot.Income > 0 && snapshot.SavingsRate < 10)
         {
-            insights.Warnings.Add(new InsightItemDto
+            findings.Warnings.Add(new InsightItemDto
             {
                 Title = "Savings rate is below 10%",
                 Detail = $"You kept {snapshot.SavingsRate:0.#}% of your income this month.",
@@ -339,7 +335,7 @@ public class FinancialAnalysisService : IFinancialAnalysisService
         foreach (var budget in snapshot.Budgets.Where(b => b.Limit > 0 && b.PercentageUsed >= b.AlertThresholdPercentage))
         {
             var exceeded = budget.PercentageUsed >= 100;
-            insights.Warnings.Add(new InsightItemDto
+            findings.Warnings.Add(new InsightItemDto
             {
                 Title = exceeded
                     ? $"Budget '{budget.Name}' is over its limit"
@@ -354,7 +350,7 @@ public class FinancialAnalysisService : IFinancialAnalysisService
 
         foreach (var debt in snapshot.Debts.Where(d => d.OverdueCount > 0))
         {
-            insights.Warnings.Add(new InsightItemDto
+            findings.Warnings.Add(new InsightItemDto
             {
                 Title = $"{debt.OverdueCount} overdue {(debt.Type == "Borrowed" ? "payment" : "receivable")}",
                 Detail = $"{debt.OverdueAmount:0.##} is past its due date.",
@@ -368,7 +364,7 @@ public class FinancialAnalysisService : IFinancialAnalysisService
             var change = (snapshot.Expenses - snapshot.PreviousExpenses) / snapshot.PreviousExpenses * 100;
             if (change >= 25)
             {
-                insights.Warnings.Add(new InsightItemDto
+                findings.Warnings.Add(new InsightItemDto
                 {
                     Title = $"Spending jumped {change:0.#}% on last month",
                     Detail = $"{snapshot.PreviousExpenses:0.##} last month against {snapshot.Expenses:0.##} this month.",
@@ -381,7 +377,7 @@ public class FinancialAnalysisService : IFinancialAnalysisService
         // --- Recommendations ----------------------------------------------
         if (topCategory != null && topCategory.SharePercent >= 40 && snapshot.ExpenseByCategory.Count > 1)
         {
-            insights.Recommendations.Add(new InsightItemDto
+            findings.Recommendations.Add(new InsightItemDto
             {
                 Title = $"Set a budget for {topCategory.Name}",
                 Detail = $"It takes {topCategory.SharePercent:0.#}% of your spending, so a limit here has the most effect.",
@@ -392,7 +388,7 @@ public class FinancialAnalysisService : IFinancialAnalysisService
 
         if (snapshot.Net > 0 && snapshot.SavingsRate < 20)
         {
-            insights.Recommendations.Add(new InsightItemDto
+            findings.Recommendations.Add(new InsightItemDto
             {
                 Title = "Aim for a 20% savings rate",
                 Detail = $"You saved {snapshot.SavingsRate:0.#}% this month. Saving {snapshot.Income * 0.2m:0.##} would reach 20%.",
@@ -403,7 +399,7 @@ public class FinancialAnalysisService : IFinancialAnalysisService
 
         if (snapshot.Budgets.Count == 0 && snapshot.Expenses > 0)
         {
-            insights.Recommendations.Add(new InsightItemDto
+            findings.Recommendations.Add(new InsightItemDto
             {
                 Title = "Add budgets to catch overspending early",
                 Detail = "Without a budget, overspending only becomes visible after the month is over.",
@@ -415,7 +411,7 @@ public class FinancialAnalysisService : IFinancialAnalysisService
         var borrowed = snapshot.Debts.FirstOrDefault(d => d.Type == "Borrowed" && d.Outstanding > 0);
         if (borrowed != null && snapshot.Net > 0)
         {
-            insights.Recommendations.Add(new InsightItemDto
+            findings.Recommendations.Add(new InsightItemDto
             {
                 Title = "Consider clearing debt with this month's surplus",
                 Detail = $"You owe {borrowed.Outstanding:0.##} and had {snapshot.Net:0.##} left over this month.",
@@ -424,9 +420,9 @@ public class FinancialAnalysisService : IFinancialAnalysisService
             });
         }
 
-        if (insights.Warnings.Count == 0 && insights.Highlights.Count > 0)
+        if (findings.Warnings.Count == 0 && findings.Highlights.Count > 0)
         {
-            insights.Highlights.Add(new InsightItemDto
+            findings.Highlights.Add(new InsightItemDto
             {
                 Title = "Nothing needs urgent attention",
                 Detail = "No budgets are close to their limits and no debts are overdue.",
@@ -434,8 +430,76 @@ public class FinancialAnalysisService : IFinancialAnalysisService
             });
         }
 
-        return insights;
+        return findings;
     }
+
+    /// <summary>
+    /// Renders the snapshot as compact text. It carries totals and trends only — no
+    /// transaction titles, descriptions, counterparties, individual amounts or dates.
+    /// This is the only representation of a user's finances that leaves the server.
+    /// </summary>
+    public static string RenderSnapshot(FinancialSnapshotDto s)
+    {
+        var sb = new StringBuilder();
+
+        sb.AppendLine($"Period: {s.PeriodLabel} ({s.PeriodStart} to {s.PeriodEnd})");
+        sb.AppendLine($"Income: {Num(s.Income)}");
+        sb.AppendLine($"Expenses: {Num(s.Expenses)}");
+        sb.AppendLine($"Net: {Num(s.Net)}");
+        sb.AppendLine($"Savings rate: {Num(s.SavingsRate)}%");
+        sb.AppendLine($"Previous month: income {Num(s.PreviousIncome)}, expenses {Num(s.PreviousExpenses)}, net {Num(s.PreviousNet)}, savings rate {Num(s.PreviousSavingsRate)}%");
+        sb.AppendLine($"Total balance (all time): {Num(s.TotalBalance)}");
+        sb.AppendLine($"Transactions this period: {s.TransactionCount}");
+        sb.AppendLine($"Months of history: {s.MonthsWithData}");
+
+        if (s.ExpenseByCategory.Count > 0)
+        {
+            sb.AppendLine();
+            sb.AppendLine("Expenses by category:");
+            foreach (var c in s.ExpenseByCategory)
+            {
+                sb.AppendLine($"- {c.Name}: {Num(c.Amount)} ({Num(c.SharePercent)}%)");
+            }
+        }
+
+        if (s.IncomeByCategory.Count > 0)
+        {
+            sb.AppendLine();
+            sb.AppendLine("Income by category:");
+            foreach (var c in s.IncomeByCategory)
+            {
+                sb.AppendLine($"- {c.Name}: {Num(c.Amount)} ({Num(c.SharePercent)}%)");
+            }
+        }
+
+        if (s.Budgets.Count > 0)
+        {
+            sb.AppendLine();
+            sb.AppendLine("Budgets:");
+            foreach (var b in s.Budgets)
+            {
+                var actual = b.ActualSpent.HasValue
+                    ? $"spent {Num(b.ActualSpent.Value)}"
+                    : $"spent {Num(b.Spent)}";
+                sb.AppendLine($"- {b.Name}: limit {Num(b.Limit)}, {actual}, {Num(b.PercentageUsed)}% used, alert at {Num(b.AlertThresholdPercentage)}%");
+            }
+        }
+
+        if (s.Debts.Count > 0)
+        {
+            sb.AppendLine();
+            sb.AppendLine("Debts:");
+            foreach (var d in s.Debts)
+            {
+                sb.AppendLine($"- {d.Type}: total {Num(d.Total)}, paid {Num(d.Paid)}, outstanding {Num(d.Outstanding)}, {d.OverdueCount} overdue ({Num(d.OverdueAmount)})");
+            }
+        }
+
+        return sb.ToString().TrimEnd();
+    }
+
+    private static string Num(decimal value) =>
+        value.ToString("0.##", CultureInfo.InvariantCulture);
 
     private static string BuildSummary(FinancialSnapshotDto snapshot)
     {
