@@ -33,7 +33,7 @@ public class AuthController : ControllerBase
             // successful registration so the endpoint cannot be used to enumerate accounts.
             return Ok(new RegisterResponse
             {
-                Message = "Account created. Please check your email for a verification code.",
+                Message = "Account created. You can sign in now.",
                 Email = request.Email
             });
         }

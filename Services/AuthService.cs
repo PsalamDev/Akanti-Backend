@@ -44,39 +44,23 @@ public class AuthService : IAuthService
             PhoneNumber = request.PhoneNumber,
             UserType = Enum.TryParse<UserType>(request.UserType, true, out var ut) ? ut : UserType.PersonalFinance,
             IsAdmin = isAdmin,
-            IsEmailVerified = isAdmin
+
+            // Accounts are active on registration. Email verification was dropped because
+            // transactional mail cannot be made reliable without a sending domain, and a
+            // verification gate that silently never delivers locks users out of an account
+            // they just created. The code flow remains for password resets, where the user
+            // has a fallback: they already know their password.
+            IsEmailVerified = true
         };
-
-        var code = isAdmin ? null : GenerateVerificationCode();
-
-        if (!isAdmin)
-        {
-            _context.EmailVerifications.Add(new EmailVerification
-            {
-                Code = code!,
-                ExpiresAt = DateTime.UtcNow.AddMinutes(15),
-                IsUsed = false,
-                User = user
-            });
-        }
 
         _context.Users.Add(user);
         await _context.SaveChangesAsync();
 
-        if (!isAdmin)
-        {
-            await _emailQueue.EnqueueAsync(user.Email, "Verify your Akanti account", BuildVerificationEmail(user.FullName, code!));
-
-            return new RegisterResponse
-            {
-                Message = "Account created. Please check your email for a verification code.",
-                Email = request.Email
-            };
-        }
-
         return new RegisterResponse
         {
-            Message = "Admin account created successfully.",
+            Message = isAdmin
+                ? "Admin account created successfully."
+                : "Account created. You can sign in now.",
             Email = request.Email
         };
     }
@@ -89,8 +73,20 @@ public class AuthService : IAuthService
         if (!VerifyPassword(request.Password, user.PasswordHash))
             throw new UnauthorizedAccessException("Invalid email or password.");
 
+        // Accounts that predate auto-verification may still carry IsEmailVerified = false.
+        // They registered against an email pipeline that never delivered, so without this
+        // they would remain permanently locked out of an account they own. Verification is
+        // no longer a login precondition, so let them in and mark the flag on first sign-in.
         if (!user.IsEmailVerified)
-            throw new UnauthorizedAccessException("Please verify your email before logging in. Check your inbox for the verification code.");
+        {
+            var tracked = await _context.Users.FirstOrDefaultAsync(u => u.Id == user.Id);
+            if (tracked != null)
+            {
+                tracked.IsEmailVerified = true;
+                tracked.UpdatedAt = DateTime.UtcNow;
+                await _context.SaveChangesAsync();
+            }
+        }
 
         return GenerateTokenResponse(user);
     }
