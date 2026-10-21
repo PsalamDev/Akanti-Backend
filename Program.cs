@@ -144,10 +144,20 @@ builder.Services.AddCors(options =>
     options.AddPolicy("AllowReactApp", policy =>
     {
         var origins = new List<string> { "http://localhost:3000", "http://localhost:5173", "http://localhost:5174", "http://localhost:5180" };
-        var vercelUrl = Environment.GetEnvironmentVariable("FRONTEND_URL");
-        if (!string.IsNullOrEmpty(vercelUrl)) origins.Add(vercelUrl);
 
-        policy.WithOrigins(origins.ToArray())
+        // FRONTEND_URL may hold several origins separated by commas or semicolons, so a
+        // project with more than one Vercel domain (or a rename mid-flight) does not
+        // silently lose access.
+        var configured = Environment.GetEnvironmentVariable("FRONTEND_URL");
+        if (!string.IsNullOrWhiteSpace(configured))
+        {
+            origins.AddRange(configured
+                .Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(o => o.TrimEnd('/'))
+                .Where(o => o.Length > 0));
+        }
+
+        policy.WithOrigins(origins.Distinct().ToArray())
               .AllowAnyHeader()
               .AllowAnyMethod()
               .AllowCredentials();
