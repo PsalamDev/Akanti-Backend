@@ -233,6 +233,11 @@ builder.Services.AddScoped<IInvoiceService, InvoiceService>();
 builder.Services.AddSingleton<BackgroundEmailQueue>();
 builder.Services.AddSingleton<IBackgroundEmailQueue>(sp => sp.GetRequiredService<BackgroundEmailQueue>());
 builder.Services.AddHostedService<BackgroundEmailService>();
+
+// Email goes out over HTTP rather than SMTP: Render blocks outbound SMTP, so a Gmail
+// connection from the deployed app times out. A named client gives one pooled,
+// reusable handler for every send.
+builder.Services.AddHttpClient("EmailApi", c => c.Timeout = TimeSpan.FromSeconds(20));
 builder.Services.AddSingleton<AuditLogQueue>();
 builder.Services.AddSingleton<IAuditLogQueue>(sp => sp.GetRequiredService<AuditLogQueue>());
 builder.Services.AddHostedService<AuditLogProcessorService>();
