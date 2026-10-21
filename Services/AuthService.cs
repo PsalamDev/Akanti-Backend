@@ -111,7 +111,15 @@ public class AuthService : IAuthService
 
         user.IsEmailVerified = true;
         user.UpdatedAt = DateTime.UtcNow;
-        verification.IsUsed = true;
+
+        // Retire every outstanding code, not just the one matched, so no unused codes
+        // survive on an account that is already verified.
+        var outstanding = await _context.EmailVerifications
+            .Where(v => v.UserId == user.Id && !v.IsUsed)
+            .ToListAsync();
+
+        foreach (var v in outstanding)
+            v.IsUsed = true;
 
         await _context.SaveChangesAsync();
 
@@ -120,11 +128,36 @@ public class AuthService : IAuthService
 
     public async Task ResendVerificationAsync(string email)
     {
-        var user = await _context.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Email == email)
+        var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == email)
             ?? throw new InvalidOperationException("User not found.");
 
         if (user.IsEmailVerified)
             throw new InvalidOperationException("Email is already verified.");
+
+        // Server-side cooldown. The client shows a countdown, but that is cosmetic: a
+        // caller can hit this endpoint directly, so the limit has to live here.
+        var cooldownMinutes = 2;
+        var recent = await _context.EmailVerifications.AsNoTracking()
+            .Where(v => v.UserId == user.Id && v.CreatedAt > DateTime.UtcNow.AddMinutes(-cooldownMinutes))
+            .OrderByDescending(v => v.CreatedAt)
+            .FirstOrDefaultAsync();
+
+        if (recent != null)
+        {
+            var waitSeconds = (int)(recent.CreatedAt.AddMinutes(cooldownMinutes) - DateTime.UtcNow).TotalSeconds;
+            if (waitSeconds > 0)
+                throw new InvalidOperationException($"Please wait {waitSeconds / 60}m {waitSeconds % 60}s before requesting a new code.");
+        }
+
+        // Retire every outstanding code before issuing a new one. Without this each
+        // resend adds another valid code, so the account becomes easier to guess into
+        // rather than harder, and codes the user never saw stay live.
+        var outstanding = await _context.EmailVerifications
+            .Where(v => v.UserId == user.Id && !v.IsUsed)
+            .ToListAsync();
+
+        foreach (var old in outstanding)
+            old.IsUsed = true;
 
         var code = GenerateVerificationCode();
 
@@ -133,8 +166,10 @@ public class AuthService : IAuthService
             UserId = user.Id,
             Code = code,
             ExpiresAt = DateTime.UtcNow.AddMinutes(15),
-            IsUsed = false
+            IsUsed = false,
+            CreatedAt = DateTime.UtcNow
         });
+
         await _context.SaveChangesAsync();
 
         await _emailQueue.EnqueueAsync(user.Email, "Verify your Akanti account", BuildVerificationEmail(user.FullName, code));
