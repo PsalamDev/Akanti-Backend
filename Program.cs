@@ -368,6 +368,11 @@ static void SeedAdminUser(ApplicationDbContext context, IConfiguration configura
     if (string.IsNullOrEmpty(adminEmail))
         return;
 
+    // Emails are stored lowercased, so the seeded admin has to be stored the same way.
+    // A mixed-case value here would otherwise seed a second admin row that
+    // duplicates the existing one.
+    adminEmail = adminEmail.Trim().ToLowerInvariant();
+
     if (context.Users.AsNoTracking().Any(u => u.Email == adminEmail))
         return;
 

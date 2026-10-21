@@ -31,6 +31,16 @@ public class ApplicationDbContext : DbContext
     {
         base.OnModelCreating(modelBuilder);
 
+        // Emails are always stored lowercased (see AuthService.NormalizeEmail), so this
+        // unique index is equivalent to a case-insensitive one for anything written
+        // through the application.
+        //
+        // The stronger guarantee — a unique index over LOWER("Email"), which also rejects
+        // a case variant inserted directly into the database — is applied by
+        // deploy/sql/003_email_case_insensitive_unique.sql. EF Core cannot express that
+        // index in the model, because it rejects method calls such as u.Email.ToLower()
+        // in HasIndex ("not a valid member access expression"), so the script is the
+        // only way to create it.
         modelBuilder.Entity<User>()
             .HasIndex(u => u.Email)
             .IsUnique();

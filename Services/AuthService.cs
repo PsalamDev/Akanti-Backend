@@ -27,19 +27,25 @@ public class AuthService : IAuthService
 
     public async Task<RegisterResponse> RegisterAsync(RegisterRequest request)
     {
+        // Email is stored and compared in a single canonical form. Without this, the
+        // duplicate check below was case-sensitive while the admin grant check was
+        // case-insensitive, so registering ADMIN@AKANTI.COM alongside admin@akanti.com
+        // created a second account that was granted the Admin role.
+        var email = NormalizeEmail(request.Email);
+
         // Anti-enumeration: an existing email must produce the same response shape and
         // timing class as a fresh registration. Never reveal whether the account exists.
-        if (await _context.Users.AsNoTracking().AnyAsync(u => u.Email == request.Email))
+        if (await _context.Users.AsNoTracking().AnyAsync(u => u.Email == email))
             throw new AuthFlowException("Email already registered.");
 
         var adminEmail = _configuration["AdminEmail"];
         var isAdmin = !string.IsNullOrEmpty(adminEmail) &&
-                      string.Equals(request.Email, adminEmail, StringComparison.OrdinalIgnoreCase);
+                      string.Equals(email, NormalizeEmail(adminEmail), StringComparison.Ordinal);
 
         var user = new User
         {
             FullName = request.FullName,
-            Email = request.Email,
+            Email = email,
             PasswordHash = HashPassword(request.Password),
             PhoneNumber = request.PhoneNumber,
             UserType = Enum.TryParse<UserType>(request.UserType, true, out var ut) ? ut : UserType.PersonalFinance,
@@ -61,13 +67,16 @@ public class AuthService : IAuthService
             Message = isAdmin
                 ? "Admin account created successfully."
                 : "Account created. You can sign in now.",
-            Email = request.Email
+            Email = email
         };
     }
 
     public async Task<AuthResponse> LoginAsync(LoginRequest request)
     {
-        var user = await _context.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Email == request.Email)
+        // Look up the canonical form, so signing in as ADMIN@AKANTI.COM finds the
+        // account stored as admin@akanti.com.
+        var user = await _context.Users.AsNoTracking()
+            .FirstOrDefaultAsync(u => u.Email == NormalizeEmail(request.Email))
             ?? throw new UnauthorizedAccessException("Invalid email or password.");
 
         if (!VerifyPassword(request.Password, user.PasswordHash))
@@ -93,7 +102,7 @@ public class AuthService : IAuthService
 
     public async Task<AuthResponse> VerifyEmailAsync(string email, string code)
     {
-        var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == email)
+        var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == NormalizeEmail(email))
             ?? throw new InvalidOperationException("User not found.");
 
         if (user.IsEmailVerified)
@@ -124,7 +133,7 @@ public class AuthService : IAuthService
 
     public async Task ResendVerificationAsync(string email)
     {
-        var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == email)
+        var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == NormalizeEmail(email))
             ?? throw new InvalidOperationException("User not found.");
 
         if (user.IsEmailVerified)
@@ -190,7 +199,8 @@ public class AuthService : IAuthService
 
     public async Task ForgotPasswordAsync(string email)
     {
-        var user = await _context.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Email == email);
+        var user = await _context.Users.AsNoTracking()
+            .FirstOrDefaultAsync(u => u.Email == NormalizeEmail(email));
         if (user == null) return;
 
         var cooldownMinutes = 10;
@@ -225,7 +235,8 @@ public class AuthService : IAuthService
 
     public async Task VerifyResetCodeAsync(string email, string code)
     {
-        var user = await _context.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Email == email)
+        var user = await _context.Users.AsNoTracking()
+            .FirstOrDefaultAsync(u => u.Email == NormalizeEmail(email))
             ?? throw new InvalidOperationException("User not found.");
 
         var resetToken = await _context.PasswordResetTokens.AsNoTracking()
@@ -235,7 +246,7 @@ public class AuthService : IAuthService
 
     public async Task ResetPasswordAsync(string email, string code, string newPassword)
     {
-        var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == email)
+        var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == NormalizeEmail(email))
             ?? throw new InvalidOperationException("User not found.");
 
         var latestToken = await _context.PasswordResetTokens
@@ -264,6 +275,13 @@ public class AuthService : IAuthService
         user.UpdatedAt = DateTime.UtcNow;
         await _context.SaveChangesAsync();
     }
+
+    /// <summary>
+    /// Canonical form for an email address: trimmed and lowercased.
+    /// Storage, duplicate detection, and lookup all use this, so one address can only
+    /// ever be one account regardless of how the user typed it.
+    /// </summary>
+    private static string NormalizeEmail(string email) => email.Trim().ToLowerInvariant();
 
     private static string GenerateVerificationCode()
     {

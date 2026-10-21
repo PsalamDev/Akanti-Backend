@@ -7,7 +7,9 @@ be applied deliberately.
 
 ## First-time setup (empty database)
 
-Nothing to do. The API creates everything on first startup.
+The API creates the whole schema on first startup, **except** one index that EF Core
+cannot express in the model. Run `003_email_case_insensitive_unique.sql` once against
+the new database as well, so a fresh database ends up identical to a migrated one.
 
 ## Adding tables to an existing database
 
@@ -20,6 +22,7 @@ psql "Host=...;Port=5432;Database=...;Username=...;Password=..." -f deploy/sql/0
 | Script | Adds |
 |---|---|
 | `002_paypal_invoicing.sql` | `Customers`, `Invoices`, `InvoiceItems`, `PayPalWebhookEvents`, `InvoiceDrafts` |
+| `003_email_case_insensitive_unique.sql` | Replaces the case-sensitive `IX_Users_Email` with a unique index over `LOWER("Email")` |
 
 Each script is written to be run once. It wraps its work in a transaction; if it reports
 that a relation already exists, the change is already applied.
