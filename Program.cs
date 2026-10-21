@@ -258,7 +258,10 @@ builder.Services.AddScoped<ICategoryService, CategoryService>();
 builder.Services.AddScoped<ICustomerService, CustomerService>();
 builder.Services.AddScoped<IInvoiceService, InvoiceService>();
 builder.Services.AddScoped<IFinancialAnalysisService, FinancialAnalysisService>();
-builder.Services.AddScoped<IAiProviderClient, AiProviderClient>();
+// Singleton, not scoped: the client holds no per-request state, and it remembers which
+// model the provider actually offers. Providers retire model names without warning, and
+// remembering the one that worked means a retired name does not need a redeploy to fix.
+builder.Services.AddSingleton<IAiProviderClient, AiProviderClient>();
 builder.Services.AddScoped<IAiInsightsService, AiInsightsService>();
 builder.Services.AddScoped<IAiChatService, AiChatService>();
 builder.Services.AddSingleton<BackgroundEmailQueue>();

@@ -22,6 +22,13 @@ public class AiProviderClient : IAiProviderClient
     private readonly IConfiguration _configuration;
     private readonly ILogger<AiProviderClient> _logger;
 
+    /// <summary>
+    /// The model that last worked. Held here rather than in configuration because
+    /// providers retire model names without notice, and a retired name should not
+    /// take the feature down until the next deploy.
+    /// </summary>
+    private string? _activeModel;
+
     public AiProviderClient(
         IHttpClientFactory httpClientFactory,
         IConfiguration configuration,
@@ -34,7 +41,14 @@ public class AiProviderClient : IAiProviderClient
 
     public string Provider => (_configuration["Ai:Provider"] ?? "").Trim().ToLowerInvariant();
 
-    public string Model
+    /// <summary>
+    /// The model in use. Once a model has been proven to work it is remembered for the
+    /// lifetime of the process, so a model name the provider has retired is corrected
+    /// without needing a redeploy.
+    /// </summary>
+    public string Model => _activeModel ?? ConfiguredModel;
+
+    private string ConfiguredModel
     {
         get
         {
@@ -43,10 +57,10 @@ public class AiProviderClient : IAiProviderClient
 
             return Provider switch
             {
-                "gemini" => "gemini-2.5-flash",
+                "gemini" => "gemini-3.8-flash",
                 "anthropic" => "claude-sonnet-4-5",
                 "groq" => "llama-3.3-70b-versatile",
-                "openrouter" => "google/gemini-2.5-flash",
+                "openrouter" => "google/gemini-3.8-flash",
                 _ => "gpt-4o-mini"
             };
         }
@@ -113,14 +127,98 @@ public class AiProviderClient : IAiProviderClient
                 $"AI provider is not configured. Set Ai:Provider and Ai:ApiKey (current provider: '{Provider}').");
         }
 
+        var candidates = CandidateModels();
+        AiProviderException? last = null;
+
+        for (var i = 0; i < candidates.Count; i++)
+        {
+            var model = candidates[i];
+            try
+            {
+                var text = await SendOnceAsync(systemPrompt, turns, jsonSchema, model, cancellationToken);
+
+                // Remember what worked, so the next request goes straight to it.
+                if (!string.Equals(model, _activeModel, StringComparison.OrdinalIgnoreCase))
+                {
+                    _activeModel = model;
+                    _logger.LogInformation("AI provider {Provider} is using model {Model}.", Provider, model);
+                }
+
+                return text;
+            }
+            catch (AiProviderException ex) when (
+                i < candidates.Count - 1 && IsModelUnavailable(ex.StatusCode, ex.Message))
+            {
+                _logger.LogWarning(
+                    "AI provider {Provider} does not offer model {Model}. Trying {Next} instead.",
+                    Provider, model, candidates[i + 1]);
+                last = ex;
+            }
+        }
+
+        throw last ?? new AiProviderException("The AI provider could not be reached.");
+    }
+
+    /// <summary>
+    /// The models to try, in order. The configured model comes first, then a short list
+    /// of known-good alternatives. Providers retire model names without warning — Gemini
+    /// withdrew <c>gemini-2.5-flash</c> from new accounts — so the feature keeps
+    /// working instead of quietly falling back to the rule-based insights.
+    /// </summary>
+    private IReadOnlyList<string> CandidateModels()
+    {
+        var fallbacks = Provider switch
+        {
+            "gemini" => new[] { "gemini-3.8-flash", "gemini-3.5-flash", "gemini-2.5-flash" },
+            "anthropic" => new[] { "claude-sonnet-4-5", "claude-3-5-sonnet-latest" },
+            "groq" => new[] { "llama-3.3-70b-versatile", "llama-3.1-8b-instant" },
+            "openrouter" => new[] { "google/gemini-3.8-flash", "google/gemini-2.5-flash" },
+            _ => new[] { "gpt-4o-mini" }
+        };
+
+        var list = new List<string> { Model };
+        foreach (var fallback in fallbacks)
+        {
+            if (!list.Contains(fallback, StringComparer.OrdinalIgnoreCase))
+            {
+                list.Add(fallback);
+            }
+        }
+        return list;
+    }
+
+    /// <summary>
+    /// True when the provider's complaint is about the model rather than the request.
+    /// A retired model is worth retrying with a different name; a bad key is not.
+    /// </summary>
+    private static bool IsModelUnavailable(int? statusCode, string message)
+    {
+        if (statusCode != 404 && statusCode != 400) return false;
+
+        var lower = message.ToLowerInvariant();
+        return lower.Contains("no longer available")
+            || lower.Contains("unsupported model")
+            || lower.Contains("unknown model")
+            || lower.Contains("invalid model")
+            || lower.Contains("model not found")
+            || lower.Contains("models/") && lower.Contains("not found");
+    }
+
+    private async Task<string> SendOnceAsync(
+        string systemPrompt,
+        IReadOnlyList<ChatTurn> turns,
+        object? jsonSchema,
+        string model,
+        CancellationToken cancellationToken)
+    {
         var client = _httpClientFactory.CreateClient("AiApi");
         var apiKey = (_configuration["Ai:ApiKey"] ?? "").Trim();
 
         var (url, request, extract) = Provider switch
         {
-            "gemini" => BuildGeminiRequest(systemPrompt, turns, jsonSchema),
-            "openai" or "groq" or "openrouter" => BuildOpenAiRequest(systemPrompt, turns, jsonSchema),
-            "anthropic" => BuildAnthropicRequest(systemPrompt, turns),
+            "gemini" => BuildGeminiRequest(systemPrompt, turns, jsonSchema, model),
+            "openai" or "groq" or "openrouter" => BuildOpenAiRequest(systemPrompt, turns, jsonSchema, model),
+            "anthropic" => BuildAnthropicRequest(systemPrompt, turns, model),
             _ => throw new AiProviderException($"Unsupported AI provider '{Provider}'.")
         };
 
@@ -182,10 +280,10 @@ public class AiProviderClient : IAiProviderClient
     // -----------------------------------------------------------------------
 
     private (string Url, string Body, Func<JsonDocument, string?> Extract) BuildGeminiRequest(
-        string systemPrompt, IReadOnlyList<ChatTurn> turns, object? jsonSchema)
+        string systemPrompt, IReadOnlyList<ChatTurn> turns, object? jsonSchema, string model)
     {
         var baseUrl = ResolveBaseUrl("https://generativelanguage.googleapis.com/v1beta");
-        var url = $"{baseUrl}/models/{Model}:generateContent";
+        var url = $"{baseUrl}/models/{model}:generateContent";
 
         var generationConfig = new Dictionary<string, object?>
         {
@@ -237,7 +335,7 @@ public class AiProviderClient : IAiProviderClient
     }
 
     private (string Url, string Body, Func<JsonDocument, string?> Extract) BuildOpenAiRequest(
-        string systemPrompt, IReadOnlyList<ChatTurn> turns, object? jsonSchema)
+        string systemPrompt, IReadOnlyList<ChatTurn> turns, object? jsonSchema, string model)
     {
         var baseUrl = ResolveBaseUrl(Provider switch
         {
@@ -262,7 +360,7 @@ public class AiProviderClient : IAiProviderClient
 
         var payload = new Dictionary<string, object?>
         {
-            ["model"] = Model,
+            ["model"] = model,
             ["temperature"] = 0.4,
             ["messages"] = messages
         };
@@ -283,7 +381,7 @@ public class AiProviderClient : IAiProviderClient
     }
 
     private (string Url, string Body, Func<JsonDocument, string?> Extract) BuildAnthropicRequest(
-        string systemPrompt, IReadOnlyList<ChatTurn> turns)
+        string systemPrompt, IReadOnlyList<ChatTurn> turns, string model)
     {
         var baseUrl = ResolveBaseUrl("https://api.anthropic.com/v1");
 
@@ -297,7 +395,7 @@ public class AiProviderClient : IAiProviderClient
 
         var payload = new Dictionary<string, object?>
         {
-            ["model"] = Model,
+            ["model"] = model,
             ["max_tokens"] = 2000,
             ["temperature"] = 0.4,
             ["system"] = systemPrompt,
