@@ -120,3 +120,8 @@ public class AdminIncomeTotalDto
     public int Count { get; set; }
     public int UserCount { get; set; }
 }
+
+public class TestEmailRequest
+{
+    public string To { get; set; } = string.Empty;
+}

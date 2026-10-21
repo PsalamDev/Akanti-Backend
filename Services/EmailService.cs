@@ -148,8 +148,11 @@ public class EmailService : IEmailService
                 "Failed to send email to {To} via {Provider}. Status {Status}. Response: {Body}",
                 to, providerName, (int)response.StatusCode, Truncate(body, 500));
 
+            // Include the provider's own message: it is the part that says *why*
+            // (unverified sender, disabled account, bad key) rather than just the code.
+            var detail = Truncate(body, 300);
             throw new InvalidOperationException(
-                $"{providerName} rejected the email ({(int)response.StatusCode}).");
+                $"{providerName} rejected the email ({(int)response.StatusCode}). {detail}");
         }
         catch (HttpRequestException ex)
         {

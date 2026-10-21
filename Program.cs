@@ -336,6 +336,30 @@ using (var scope = app.Services.CreateScope())
     SeedAdminUser(dbContext, builder.Configuration);
 }
 
+// Mail configuration is easy to get subtly wrong (Email__Provider vs Email:Provider,
+// a missing key, a From address that differs from the one the provider verified), and
+// the symptom is identical in every case: no email arrives. Print the resolved state at
+// boot so the cause is visible without waiting for a failed send. Never print the key.
+{
+    var emailProvider = (builder.Configuration["Email:Provider"] ?? "").Trim();
+    var emailFrom = builder.Configuration["Email:FromEmail"]
+        ?? builder.Configuration["Smtp:FromEmail"]
+        ?? "";
+    var hasApiKey = !string.IsNullOrWhiteSpace(builder.Configuration["Email:ApiKey"]);
+
+    Console.WriteLine(
+        $"Email configuration: provider={(emailProvider == "" ? "smtp (Email:Provider not set)" : emailProvider)}, " +
+        $"from={(emailFrom == "" ? "(not set)" : emailFrom)}, " +
+        $"apiKey={(hasApiKey ? "set" : "not set")}");
+
+    if (emailProvider != "" && !hasApiKey)
+    {
+        Console.WriteLine(
+            $"WARNING: Email:Provider is '{emailProvider}' but Email:ApiKey is empty. " +
+            "Sends will fail. Set Email__ApiKey (double underscore) in the environment.");
+    }
+}
+
 app.Run();
 
 static void SeedAdminUser(ApplicationDbContext context, IConfiguration configuration)
