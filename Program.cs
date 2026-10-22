@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using Akanti.API.Configuration;
 using Akanti.API.Data;
 using Akanti.API.Interfaces;
 using Akanti.API.Models;
@@ -45,10 +46,12 @@ builder.Services.AddSwaggerGen(c =>
     });
 });
 
-// Configuration already merges appsettings.json with the environment, so
-// ConnectionStrings__DefaultConnection overrides the committed default.
-var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
-var connectionFromEnv = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("ConnectionStrings__DefaultConnection"));
+// The committed connection string is only a fallback. Database:Host / Port / Name /
+// Username / Password override it piece by piece, so a developer whose Postgres
+// listens on another port only has to set Database__Port instead of rewriting the
+// whole string. A full ConnectionStrings__DefaultConnection in the environment still
+// wins outright.
+var (connectionString, connectionSource) = DatabaseConnectionString.Resolve(builder.Configuration);
 
 // Log the resolved host (never the password) so a misconfigured deploy is
 // obvious in the logs instead of failing later with a connection error.
@@ -71,7 +74,7 @@ if (!string.IsNullOrWhiteSpace(connectionString))
         dbSummary = "(unparseable connection string)";
     }
 }
-Console.WriteLine($"Using database: {dbSummary} (source: {(connectionFromEnv ? "environment" : "appsettings.json")})");
+Console.WriteLine($"Using database: {dbSummary} (source: {connectionSource})");
 
 builder.Services.AddDbContextPool<ApplicationDbContext>(options =>
     options.UseNpgsql(connectionString, o =>

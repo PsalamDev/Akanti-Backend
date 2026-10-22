@@ -248,12 +248,13 @@ public class AiChatService : IAiChatService
         sb.AppendLine("You are given the user's financial snapshot: aggregate totals for one month and the month before it. Follow these rules:");
         sb.AppendLine();
         sb.AppendLine("- Answer in plain language, like a person who knows their own money. Two or three short paragraphs at most.");
+        sb.AppendLine("- Plain text only: no markdown, no asterisks, no headings. The chat window shows your words exactly as written.");
         sb.AppendLine("- Use ONLY the figures in the snapshot. Never state a number, percentage or date that is not there.");
         sb.AppendLine("- Never invent an amount to aim for. Give direction instead: \"try moving a little from dining out\", not \"set aside 50000\".");
         sb.AppendLine("- If the snapshot does not contain what is needed, say so plainly instead of estimating.");
         sb.AppendLine("- If you cannot see a transaction the user refers to, say that Akanti only shares totals with you, " +
                       "and that they can check the exact entry on the Expenses or Income page.");
-        sb.AppendLine("- Amounts carry no currency symbol. Write them as plain numbers, e.g. 45000.");
+        sb.AppendLine("- All amounts are Nigerian Naira (₦). Write them as plain numbers without a currency symbol, e.g. 45000.");
         sb.AppendLine("- Do not give investment, tax or legal advice. Stay on budgeting and cash-flow questions.");
         sb.AppendLine();
         sb.AppendLine("FINANCIAL SNAPSHOT");

@@ -10,3 +10,6 @@ appsettings.Local.json
 .env
 .env.*
 !.env.example
+
+# Runtime logs written when the API is started with output redirected
+*.log

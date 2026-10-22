@@ -25,7 +25,7 @@ public class Invoice
     public InvoiceStatus Status { get; set; } = InvoiceStatus.Draft;
 
     [Required, MaxLength(3)]
-    public string Currency { get; set; } = "USD";
+    public string Currency { get; set; } = "NGN";
 
     [Column(TypeName = "decimal(18,2)")]
     public decimal Subtotal { get; set; }

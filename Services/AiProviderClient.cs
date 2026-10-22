@@ -59,7 +59,7 @@ public class AiProviderClient : IAiProviderClient
             {
                 "gemini" => "gemini-3.8-flash",
                 "anthropic" => "claude-sonnet-4-5",
-                "groq" => "llama-3.3-70b-versatile",
+                "groq" => "openai/gpt-oss-120b",
                 "openrouter" => "google/gemini-3.8-flash",
                 _ => "gpt-4o-mini"
             };
@@ -171,7 +171,10 @@ public class AiProviderClient : IAiProviderClient
         {
             "gemini" => new[] { "gemini-3.8-flash", "gemini-3.5-flash", "gemini-2.5-flash" },
             "anthropic" => new[] { "claude-sonnet-4-5", "claude-3-5-sonnet-latest" },
-            "groq" => new[] { "llama-3.3-70b-versatile", "llama-3.1-8b-instant" },
+            // Groq retired the llama-3.x family in 2026. These are the free chat
+            // models it currently serves; gpt-oss-20b is the cheap fallback and
+            // qwen is the last resort when both gpt-oss names are unavailable.
+            "groq" => new[] { "openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.8-27b" },
             "openrouter" => new[] { "google/gemini-3.8-flash", "google/gemini-2.5-flash" },
             _ => new[] { "gpt-4o-mini" }
         };
@@ -201,6 +204,10 @@ public class AiProviderClient : IAiProviderClient
             || lower.Contains("unknown model")
             || lower.Contains("invalid model")
             || lower.Contains("model not found")
+            || lower.Contains("does not exist")
+            || lower.Contains("do not have access")
+            || lower.Contains("decommissioned")
+            || lower.Contains("not supported")
             || lower.Contains("models/") && lower.Contains("not found");
     }
 

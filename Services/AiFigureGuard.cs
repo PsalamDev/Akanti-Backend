@@ -46,6 +46,15 @@ public static class AiFigureGuard
                 continue;
             }
 
+            // Years are four digits and therefore clear the amount threshold, but a
+            // year is never a monetary claim. Without this, any answer that mentions
+            // the period ("October 2026", "2026-10-01") is rejected as if the model
+            // had invented a figure, which is exactly what the guard must not do.
+            if (value >= 1900m && value <= 2100m && raw.Length == 4)
+            {
+                continue;
+            }
+
             // A conversational answer rounds more freely than a structured one, so
             // the tolerance is wider than an exact match.
             var supported = allowed.Any(a => Math.Abs(a - value) <= Math.Max(1m, a * 0.05m));

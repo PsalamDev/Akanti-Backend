@@ -18,9 +18,9 @@ public class CreateInvoiceRequest
 {
     public int CustomerId { get; set; }
 
-    /// <summary>ISO 4217 code. Defaults to USD.</summary>
+    /// <summary>ISO 4217 code. Defaults to NGN.</summary>
     [MaxLength(3)]
-    public string Currency { get; set; } = "USD";
+    public string Currency { get; set; } = "NGN";
 
     [Required]
     public DateTime IssueDate { get; set; }

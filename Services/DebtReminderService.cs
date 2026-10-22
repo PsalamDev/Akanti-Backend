@@ -68,7 +68,7 @@ public class DebtReminderService : BackgroundService
                 : $"is due in {(int)daysUntilDue.TotalDays} day(s)";
 
             var title = isOverdue ? "Overdue Debt Reminder" : "Upcoming Debt Reminder";
-            var message = $"Reminder: ${debt.Amount - debt.AmountPaid:F2} from {debt.PersonName} {statusText}. Please follow up.";
+            var message = $"Reminder: ₦{debt.Amount - debt.AmountPaid:N2} from {debt.PersonName} {statusText}. Please follow up.";
 
             var notification = new Notification
             {
@@ -81,6 +81,10 @@ public class DebtReminderService : BackgroundService
                 CreatedAt = now
             };
             context.Notifications.Add(notification);
+
+            // Mirror the reminder into the debtor's own notification bell when the
+            // address on the debt belongs to a registered Akanti account.
+            await DebtReminderNotifier.AddDebtorNotificationAsync(context, debt, now);
 
             var lenderEmail = debt.User?.Email;
             var lenderName = debt.User?.FullName ?? "The lender";
@@ -96,7 +100,7 @@ public class DebtReminderService : BackgroundService
                         <p>This is a reminder that the following debt {statusText}:</p>
                         <div style="background: #f9fafb; padding: 15px; border-radius: 8px; margin: 15px 0;">
                             <p><strong>Person:</strong> {personName}</p>
-                            <p><strong>Amount Owed:</strong> ${debt.Amount - debt.AmountPaid:F2}</p>
+                            <p><strong>Amount Owed:</strong> ₦{debt.Amount - debt.AmountPaid:N2}</p>
                             <p><strong>Description:</strong> {debt.Description}</p>
                             <p><strong>Due Date:</strong> {debt.DueDate:MMM dd, yyyy}</p>
                         </div>
@@ -121,7 +125,7 @@ public class DebtReminderService : BackgroundService
                         <p><strong>{lenderName}</strong> is reminding you about the following debt:</p>
                         <div style="background: #f9fafb; padding: 15px; border-radius: 8px; margin: 15px 0; border-left: 4px solid #dc2626;">
                             <p><strong>Description:</strong> {debt.Description}</p>
-                            <p><strong>Amount Remaining:</strong> ${debt.Amount - debt.AmountPaid:F2}</p>
+                            <p><strong>Amount Remaining:</strong> ₦{debt.Amount - debt.AmountPaid:N2}</p>
                             <p><strong>Due Date:</strong> {dueText}</p>
                         </div>
                         <p>Please arrange payment at your earliest convenience.</p>

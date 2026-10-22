@@ -236,7 +236,7 @@ public class DebtService : IDebtService
             : $"is due on {debt.DueDate:MMM dd, yyyy}";
 
         var title = isOverdue ? "Overdue Debt Reminder" : "Debt Reminder";
-        var msg = $"Reminder: ${remaining:F2} from {debt.PersonName} ({debt.Description}).";
+        var msg = $"Reminder: ₦{remaining:N2} from {debt.PersonName} ({debt.Description}).";
 
         var notification = new Notification
         {
@@ -249,6 +249,11 @@ public class DebtService : IDebtService
             CreatedAt = now
         };
         _context.Notifications.Add(notification);
+
+        // If the person being reminded has an Akanti account, put the same reminder
+        // in their notification bell as well. Saved together with the line above.
+        await DebtReminderNotifier.AddDebtorNotificationAsync(_context, debt, now);
+
         await _context.SaveChangesAsync();
 
         var lenderEmail = debt.User?.Email;
@@ -265,7 +270,7 @@ public class DebtService : IDebtService
                     <p>You sent a payment reminder to <strong>{personName}</strong> for the following debt:</p>
                     <div style="background: #f9fafb; padding: 15px; border-radius: 8px; margin: 15px 0; border-left: 4px solid #166534;">
                         <p><strong>Description:</strong> {debt.Description}</p>
-                        <p><strong>Amount Remaining:</strong> ${remaining:F2}</p>
+                        <p><strong>Amount Remaining:</strong> ₦{remaining:N2}</p>
                         <p><strong>Due Date:</strong> {statusText}</p>
                     </div>
                     <p style="color: #6b7280; font-size: 12px;">Sent via Akanti - Personal Finance Manager</p>
@@ -284,7 +289,7 @@ public class DebtService : IDebtService
                     <p><strong>{lenderName}</strong> is reminding you about the following debt:</p>
                     <div style="background: #f9fafb; padding: 15px; border-radius: 8px; margin: 15px 0; border-left: 4px solid #dc2626;">
                         <p><strong>Description:</strong> {debt.Description}</p>
-                        <p><strong>Amount Remaining:</strong> ${remaining:F2}</p>
+                        <p><strong>Amount Remaining:</strong> ₦{remaining:N2}</p>
                         <p><strong>Due Date:</strong> {statusText}</p>
                     </div>
                     <p>Please arrange payment at your earliest convenience.</p>

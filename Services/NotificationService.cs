@@ -50,6 +50,18 @@ public class NotificationService : INotificationService
         await _context.SaveChangesAsync();
     }
 
+    public async Task<bool> DeleteAsync(int userId, int id)
+    {
+        var notification = await _context.Notifications
+            .FirstOrDefaultAsync(n => n.Id == id && n.UserId == userId);
+
+        if (notification == null) return false;
+
+        _context.Notifications.Remove(notification);
+        await _context.SaveChangesAsync();
+        return true;
+    }
+
     public async Task<int> GetUnreadCountAsync(int userId)
     {
         return await _context.Notifications

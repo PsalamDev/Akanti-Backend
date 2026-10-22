@@ -1,7 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Akanti.API.DTOs.Notifications;
 using Akanti.API.Interfaces;
-using Akanti.API.Models;
 
 namespace Akanti.API.Controllers;
 
@@ -20,10 +20,18 @@ public class NotificationController : ControllerBase
     private int GetUserId() => int.Parse(User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)!.Value);
 
     [HttpGet]
-    public async Task<ActionResult<List<Notification>>> GetAll([FromQuery] bool? unreadOnly)
+    public async Task<ActionResult<List<NotificationDto>>> GetAll([FromQuery] bool? unreadOnly)
     {
         var notifications = await _notificationService.GetAllAsync(GetUserId(), unreadOnly);
-        return Ok(notifications);
+        return Ok(notifications.Select(NotificationDto.From).ToList());
+    }
+
+    [HttpDelete("{id}")]
+    public async Task<IActionResult> Delete(int id)
+    {
+        var deleted = await _notificationService.DeleteAsync(GetUserId(), id);
+        if (!deleted) return NotFound();
+        return NoContent();
     }
 
     [HttpPut("{id}/read")]
