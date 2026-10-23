@@ -1,8 +1,20 @@
-# Akanti API
+# Akanti
 
-The backend for **Akanti**, a personal finance app for Nigeria. It is an ASP.NET Core 8 Web API that stores income, expenses, budgets, debts, customers and invoices, powers financial reports, schedules debt reminders, and answers questions through an AI assistant.
+Akanti is a personal finance application built for Nigeria. It helps people record income and expenses, set budgets, track money lent and borrowed, see where their money goes, and ask an AI assistant for guidance grounded in their own figures.
 
-The companion frontend lives in [Akanti-Frontend](https://github.com/PsalamDev/Akanti-Frontend).
+The project is made of two applications that deploy together:
+
+| Part | Stack | Host |
+| --- | --- | --- |
+| API | ASP.NET Core 8, PostgreSQL, JWT | Render (Docker) |
+| Web app | React 18, Vite, Tailwind CSS | Vercel |
+
+This is the general README for the whole project. It lives in the backend repository; the frontend is its own repository.
+
+- Backend: <https://github.com/PsalamDev/Akanti-Backend>
+- Frontend: <https://github.com/PsalamDev/Akanti-Frontend>
+- Live app: <https://akanti-finance.vercel.app>
+- Live API: <https://akanti-backend.onrender.com>
 
 ---
 
@@ -12,13 +24,12 @@ The companion frontend lives in [Akanti-Frontend](https://github.com/PsalamDev/A
 - [Architecture](#architecture)
 - [Project layout](#project-layout)
 - [Requirements](#requirements)
-- [Running locally](#running-locally)
+- [Quick start](#quick-start)
 - [Configuration](#configuration)
 - [Database](#database)
 - [API overview](#api-overview)
-- [AI assistant](#ai-assistant)
-- [Debt reminders and notifications](#debt-reminders-and-notifications)
-- [Email](#email)
+- [How it works](#how-it-works)
+- [Design](#design)
 - [Deployment](#deployment)
 - [Troubleshooting](#troubleshooting)
 
@@ -26,76 +37,104 @@ The companion frontend lives in [Akanti-Frontend](https://github.com/PsalamDev/A
 
 ## What it does
 
-- **Authentication** — email + password sign-in, JWT bearer tokens, password reset by emailed code, change password.
-- **Money tracking** — income and expense entries, categories, per-user isolation.
-- **Budgets** — monthly/weekly/annual limits per category with threshold alerts.
-- **Debts** — money lent and borrowed, partial payments, due dates, optional reminders.
-- **Cash flow and reports** — monthly cash-flow series, profit-and-loss, period summaries.
-- **Customers and invoices** — lightweight invoicing with line items, defaulting to NGN.
-- **Notifications** — per-user inbox with unread counts, mark-read, mark-all-read and delete.
-- **AI assistant** — chat sessions backed by a configurable model provider, grounded in the user's own figures, with a deterministic fallback when no model is configured.
-- **Admin** — dashboard totals, user list and detail, activate/deactivate users, audit logs, email diagnostics.
+- **Authentication** — email and password sign-in with JWT, password reset by emailed code, change password.
+- **Money tracking** — income and expenses with categories, dates and notes.
+- **Budgets** — limits per category with progress and threshold alerts.
+- **Debts** — money lent and borrowed, partial payments, due dates and reminders.
+- **Cash flow and reports** — monthly trends, profit and loss, and period summaries.
+- **Exports** — reports download as CSV or PDF for the period currently in view.
+- **Notifications** — a per-user inbox with an unread badge in the header.
+- **Ask Akanti** — an AI assistant that answers from aggregated figures, with a deterministic fallback when no model is available.
+- **Admin panel** — platform totals, user management, activate/deactivate, audit logs.
+- **Naira by default** — every amount is displayed in Nigerian Naira (₦).
 
 ## Architecture
 
 ```
-Client (React / Vercel)
-        │  HTTPS + JWT
-        ▼
-ASP.NET Core 8 Web API  ──►  PostgreSQL (EF Core / Npgsql)
-        │
-        ├──► AI provider (Groq / OpenAI / Gemini / OpenRouter / Anthropic)
-        ├──► SMTP or Resend / Brevo / SendGrid
-        └──► Background services
-                ├── email queue
-                └── debt reminder scheduler (daily)
+┌─────────────────────────┐        ┌──────────────────────────┐
+│  React SPA (Vercel)     │  /api  │  ASP.NET Core 8 (Render) │
+│  React Router, Tailwind │ ─────► │  JWT, EF Core, services  │
+└─────────────────────────┘        └────────────┬─────────────┘
+                                                │
+                        ┌───────────────────────┼───────────────────────┐
+                        ▼                       ▼                       ▼
+                 PostgreSQL              AI provider            Email provider
+                 (Neon / local)      (Groq by default)     (SMTP / Resend / Brevo)
 ```
 
-Key pieces:
-
-- **Stateless auth.** Every protected request carries a JWT. The signing key is configuration, not a database value.
-- **Per-user data.** Every financial query is scoped by the `UserId` claim; there is no cross-user read path.
-- **Background work.** Reminder emails and notifications are queued so request latency is unaffected. The reminder scheduler wakes once a day, checks debts whose due date is inside their reminder window, and records `LastRemindedAt` so it does not send twice.
-- **Graceful AI degradation.** If no API key is configured or the provider fails, the assistant still replies using figures computed directly from the database, and flags that the answer came from records rather than the model.
+- The frontend is a static SPA. In production, Vercel rewrites `/api/*` to the Render backend, so the browser sees a single origin and no CORS preflight is needed.
+- The backend is stateless apart from PostgreSQL; every protected request carries a JWT.
+- Reminder emails and notifications are queued in the background. A daily scheduler handles automatic reminders.
+- The AI assistant receives aggregates only — never individual transactions — and its answers are checked against those figures.
 
 ## Project layout
 
 ```
 Akanti-Backend/
 ├── Configuration/     Connection-string resolver and options helpers
-├── Controllers/       HTTP endpoints (one per resource)
+├── Controllers/       One controller per resource
 ├── Data/              ApplicationDbContext
-├── DTOs/              Request/response shapes, grouped by feature
+├── DTOs/              Request and response shapes, grouped by feature
 ├── Exceptions/        Domain exceptions and handlers
 ├── Interfaces/        Service contracts
-├── Middleware/        Error handling, request plumbing
+├── Middleware/        Error handling and request plumbing
 ├── Models/            EF Core entities
 ├── Properties/        launchSettings.json (local ports)
 ├── Services/          Business logic, AI, email, reminders
 ├── Program.cs         Composition root
 ├── Dockerfile         Render image
 └── appsettings.json   Committed defaults (no secrets)
+
+Akanti-Frontend/
+├── public/            Logo, used also as the loading indicator
+├── src/
+│   ├── components/    Header, sidebars, modals, floating assistant
+│   │   └── ui/        Button, Card, Badge, Spinner, Loading
+│   ├── context/       AuthContext, ThemeContext
+│   ├── layouts/       DashboardLayout, AdminLayout
+│   ├── pages/         One component per route
+│   ├── services/      Axios client and endpoint groups
+│   ├── App.jsx        Routes, lazy loading, guards
+│   └── index.css      Tailwind layers and CSS variables
+├── vercel.json        SPA fallback and /api proxy
+├── tailwind.config.js Brand colours
+└── vite.config.js     Dev server and proxy
 ```
 
 ## Requirements
 
 - [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)
+- [Node.js](https://nodejs.org/) 18 or newer
 - PostgreSQL 14+ (local or hosted, e.g. Neon)
 - Optional: a Groq API key for the AI assistant
 - Optional: SMTP credentials or an email provider key
 
-## Running locally
+## Quick start
 
-```bash
-git clone https://github.com/PsalamDev/Akanti-Backend.git
+Two terminals. Start the API first; the frontend proxies to it.
+
+### Backend
+
+```powershell
 cd Akanti-Backend
 dotnet restore
+$env:ASPNETCORE_ENVIRONMENT = "Development"
 dotnet run
 ```
 
-The API listens on **http://localhost:5145** (from `Properties/launchSettings.json`). Swagger UI is available at `/swagger` in Development.
+Listens on **http://localhost:5145**. Swagger UI is at `/swagger` in Development.
 
-### Local settings
+### Frontend
+
+```powershell
+cd Akanti-Frontend
+npm install
+npm run dev
+```
+
+Opens on **http://localhost:5180** and proxies `/api` to `http://localhost:5145`. Both ports are fixed in the frontend's `vite.config.js`.
+
+### Local backend settings
 
 Do not put secrets in `appsettings.json`. Create `appsettings.Development.json` (already gitignored):
 
@@ -119,18 +158,13 @@ Do not put secrets in `appsettings.json`. Create `appsettings.Development.json` 
 }
 ```
 
-Run with the Development environment so that file is loaded:
-
-```powershell
-$env:ASPNETCORE_ENVIRONMENT = "Development"
-dotnet run
-```
-
 > The API refuses to start without a `Jwt:Key`. That is deliberate.
+
+The frontend needs no environment variables in development or on Vercel, because it uses the Vite proxy locally and the `vercel.json` rewrite in production. If the backend URL changes, update both the proxy target and the rewrite destination.
 
 ## Configuration
 
-Every setting can be supplied as an environment variable using double underscores (`Section__Key`).
+Every backend setting can be supplied as an environment variable using double underscores (`Section__Key`).
 
 | Variable | Purpose | Default |
 | --- | --- | --- |
@@ -162,7 +196,7 @@ Every setting can be supplied as an environment variable using double underscore
 | `ASPNETCORE_ENVIRONMENT` | `Development` or `Production` | `Production` in Docker |
 | `PORT` | HTTP port injected by the platform | `8080` |
 
-Precedence for the database: `ConnectionStrings__DefaultConnection` wins outright; otherwise the committed string is adjusted by any `Database__*` values present.
+Database precedence: `ConnectionStrings__DefaultConnection` wins outright; otherwise the committed string is adjusted by any `Database__*` values present.
 
 ## Database
 
@@ -176,6 +210,7 @@ Precedence for the database: `ConnectionStrings__DefaultConnection` wins outrigh
 All routes are under `/api`. Except for registration, login, password reset and `ai/status`, endpoints require `Authorization: Bearer <token>`.
 
 ### Auth — `/api/auth`
+
 | Method | Route | Description |
 | --- | --- | --- |
 | POST | `/register` | Create an account |
@@ -189,6 +224,7 @@ All routes are under `/api`. Except for registration, login, password reset and 
 | POST | `/change-password` | Change password while signed in |
 
 ### Financial data
+
 | Resource | Routes |
 | --- | --- |
 | Income | `GET/POST /api/income`, `GET/PUT/DELETE /api/income/{id}`, `GET /api/income/total` |
@@ -200,6 +236,7 @@ All routes are under `/api`. Except for registration, login, password reset and 
 | Invoices | `GET/POST /api/invoices`, `GET/PUT/DELETE /api/invoices/{id}`, `GET /api/invoices/summary` |
 
 ### Insight and reporting
+
 | Method | Route | Description |
 | --- | --- | --- |
 | GET | `/api/dashboard` | Dashboard aggregates |
@@ -207,6 +244,7 @@ All routes are under `/api`. Except for registration, login, password reset and 
 | GET | `/api/report/profit-loss` | Profit and loss for a period |
 
 ### Notifications — `/api/notification`
+
 | Method | Route | Description |
 | --- | --- | --- |
 | GET | `/` | List notifications (`?unreadOnly=true`) |
@@ -216,6 +254,7 @@ All routes are under `/api`. Except for registration, login, password reset and 
 | DELETE | `/{id}` | Delete one |
 
 ### AI — `/api/ai`
+
 | Method | Route | Description |
 | --- | --- | --- |
 | GET | `/status` | Provider, model and whether a key is configured (anonymous) |
@@ -224,6 +263,7 @@ All routes are under `/api`. Except for registration, login, password reset and 
 | DELETE | `/chat/sessions/{id}` | Delete a conversation |
 
 ### Admin — `/api/admin` (admin role required)
+
 | Method | Route | Description |
 | --- | --- | --- |
 | GET | `/dashboard` | Platform-wide totals |
@@ -234,43 +274,136 @@ All routes are under `/api`. Except for registration, login, password reset and 
 | GET | `/audit-logs` | Recent audit events |
 | POST | `/test-email` | Send a diagnostic email |
 
-## AI assistant
+## How it works
 
-- Provider and model are configuration, not code. Set `Ai__Provider`, `Ai__Model` and `Ai__ApiKey`.
+### Authentication
+
+The frontend stores the JWT in `localStorage` and exposes it through `AuthContext`.
+
+- `ProtectedRoute` renders a page only when a token exists; otherwise it redirects to `/login`.
+- `PublicRoute` sends signed-in users to `/dashboard`.
+- `AdminRoute` additionally checks `user.isAdmin`.
+- An Axios interceptor attaches `Authorization: Bearer <token>` to every request; a `401` clears the session.
+- Logging out asks for confirmation before clearing the token.
+
+### Data flow
+
+Pages own their data. On mount they call the relevant group in `src/services/api.js` (`incomeAPI`, `expenseAPI`, `budgetAPI`, `debtAPI`, `notificationAPI`, `aiAPI`, `adminAPI`), keep the result in local state, and re-fetch after a mutation. There is no global store; the trade-off is simplicity and predictable refreshes.
+
+### Reports and exports
+
+The reports page groups transactions by the selected tab:
+
+- **Summary** — totals for all time
+- **Daily / Weekly / Monthly / Annual** — grouped trends with a bar chart
+
+The **Download Report** button offers only two choices: **CSV** and **PDF**. The export uses whichever tab is active, so the period is chosen on the page and only the format is chosen in the menu.
+
+- **CSV** — a spreadsheet-friendly file with `Income (NGN)` and `Expenses (NGN)` columns; values stay numeric.
+- **PDF** — generated in the browser with `html2pdf.js` and saved directly as `akanti-<period>-report.pdf`. No print dialog is involved.
+
+### Notifications
+
+The header bell polls `/api/notification/unread-count` every 30 seconds and listens for a local `notifications-updated` event, so marking an item read updates the badge immediately. The notifications page supports mark-one, mark-all and delete.
+
+Debt reminders are created on the server. If the person who owes money owns an Akanti account, they receive the reminder in this same bell.
+
+### Debt reminders
+
+`POST /api/debt/{id}/remind` sends a reminder for a `Lent` debt:
+
+- an email to the lender,
+- an email to the debtor when an address is present,
+- an in-app notification to the lender,
+- and, if the debtor's address belongs to a registered active account, an in-app notification to the debtor.
+
+A background service performs the same check once a day for debts inside their reminder window, skipping `Paid` debts and throttling repeats. Emails are queued so a slow mail server does not slow the API response. Nothing new is exposed to the debtor: the lender already chose to email them the same description, amount and due date.
+
+### Ask Akanti
+
+`FloatingAssistant` renders a launcher at the bottom-right of signed-in pages and links to the full-page assistant. It is deliberately not in the sidebar.
+
+- Provider and model are configuration, not code: `Ai__Provider`, `Ai__Model`, `Ai__ApiKey`.
 - The assistant receives **aggregates only** — totals, category breakdowns, budget status and debt summaries — never individual transactions.
-- Answers are constrained to figures present in that snapshot; a guard rejects invented amounts and percentages.
+- Answers are constrained to figures present in the snapshot; a guard rejects invented amounts and percentages.
 - Replies are plain text so the chat window renders them exactly as written.
 - If the provider errors or the key is missing, the service returns a deterministic answer from the same snapshot and marks it as a fallback. `/api/ai/status` reports the active provider.
-- Rate limiting applies per user (`30` requests per `10` minutes).
+- Rate limiting applies per user (30 requests per 10 minutes).
 
-## Debt reminders and notifications
+### Admin
 
-- `POST /api/debt/{id}/remind` sends a reminder for a `Lent` debt: an email to the lender, an email to the debtor (when an address is present), an in-app notification to the lender, and — if the debtor's address belongs to a registered, active Akanti account — an in-app notification to the debtor as well.
-- A background service performs the same check once a day for debts inside their reminder window, skipping `Paid` debts and throttling repeats.
-- Emails are queued in the background; a slow mail server does not slow the API response.
-- Nothing new is exposed to the debtor: the lender already chose to email them the same description, amount and due date.
+Admins see an **Admin Panel** entry in the sidebar with its own layout:
 
-## Email
+- `/admin` — platform totals
+- `/admin/users` — search, paginate, activate/deactivate
+- `/admin/users/:id` — per-user totals
+- `/admin/audit-logs` — recent events
+
+Non-admins are redirected away.
+
+### Email
 
 Two delivery modes:
 
 1. **HTTP provider** — set `Email__Provider` to `resend`, `brevo` or `sendgrid` and provide `Email__ApiKey`.
 2. **SMTP** — leave `Email__Provider` empty and fill the `Smtp__*` settings.
 
-In Development, emails go to the configured SMTP account. If email is not configured, reminder notifications still appear in-app.
+If email is not configured, reminder notifications still appear in-app.
+
+## Design
+
+- **Background:** `#071A17` dark surface for the signature look.
+- **Accent:** `#10B981` green, exposed as `akanti.accent` in Tailwind and `--akanti-accent` in CSS.
+- Light and dark modes are supported; the toggle lives in the header.
+- Page loading uses the Akanti logo with a gentle pulse rather than a generic spinner.
+- All money is shown in **Nigerian Naira (₦)** with thousands separators.
 
 ## Deployment
 
+### Backend — Render (Docker)
+
 The repository ships a `Dockerfile` and a `.dockerignore` that excludes local secrets.
 
-**Render (Docker web service)**
-
-1. Create a Web Service from this repository, choose **Docker**.
+1. Create a Web Service from the backend repository and choose **Docker**.
 2. Set the build context to `Akanti-Backend/` (or point the Dockerfile path at it).
-3. Add the environment variables from [Configuration](#configuration). At minimum: `ConnectionStrings__DefaultConnection`, `Jwt__Key`, `FRONTEND_URL`, `Ai__ApiKey`, `Ai__Provider=groq`, `Ai__Model=openai/gpt-oss-120b`.
+3. Add the environment variables from [Configuration](#configuration). At minimum:
+   - `ConnectionStrings__DefaultConnection`
+   - `Jwt__Key`
+   - `FRONTEND_URL`
+   - `Ai__ApiKey`
+   - `Ai__Provider=groq`
+   - `Ai__Model=openai/gpt-oss-120b`
 4. Deploy. The container binds to `$PORT` (falling back to 8080) and runs in Production.
 
 On first boot the schema is created automatically. A free Render instance may cold-start after idling; the first request can take up to a minute.
+
+### Frontend — Vercel
+
+1. Import the frontend repository into Vercel.
+2. Set the project root to `Akanti-Frontend/`.
+3. Framework preset: **Vite**. Build command `npm run build`, output `dist`.
+4. Deploy.
+
+`vercel.json` provides:
+
+```json
+{
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "https://akanti-backend.onrender.com/api/$1" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}
+```
+
+The first rule proxies API calls through the same origin, avoiding CORS. The second makes client-side routes survive a refresh. If the backend URL changes, update the first rule.
+
+### Smoke test
+
+From the project root, `verify-deploy.ps1` checks the backend build, frontend asset, signup and login, email diagnostics, and the AI assistant:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\verify-deploy.ps1
+```
 
 ## Troubleshooting
 
@@ -278,9 +411,14 @@ On first boot the schema is created automatically. A free Render instance may co
 | --- | --- |
 | `connection refused` to Postgres | Local Postgres listens on a different port — set `Database__Port` |
 | API exits immediately with a JWT error | `Jwt__Key` is missing |
-| `401` on every call | Missing/expired token, or the key changed and old tokens no longer verify |
-| AI replies always come from records | `Ai__ApiKey` missing, provider unreachable, or the configured model is retired |
+| `401` on every call | Missing/expired token, or the backend key changed |
 | `429` | Rate limit hit for auth or AI endpoints |
+| AI replies always come from records | `Ai__ApiKey` missing, provider unreachable, or the model is retired |
 | Email never arrives | Provider key invalid, sender not verified, or SMTP blocked |
+| Blank page with 404s on refresh | SPA rewrite missing — check `vercel.json` |
+| Frontend API calls fail locally | Backend not running on port 5145, or port mismatch |
+| Charts render empty | No transactions in the selected period |
+| PDF button downloads nothing | Browser blocked the automatic download, or there is no data to export |
+| Notifications badge stuck | Backend unreachable, or token expired |
 
 Check `/api/ai/status` for AI configuration, `/swagger` in Development for the live route list, and the application logs for the resolved database source at startup (the password is never logged).
